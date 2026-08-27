@@ -8,7 +8,8 @@ export class CreateTableSessionDto {
 
   @ApiPropertyOptional({
     example: '2026-08-27T15:00:00.000Z',
-    description: 'เวลาหมดอายุของ QR session ถ้าไม่ส่งมาจะไม่หมดอายุอัตโนมัติ',
+    description:
+      'เวลาหมดอายุของ QR session ถ้าไม่ส่งมาระบบจะตั้งให้อัตโนมัติ 3 ชั่วโมงหลังเปิด session',
   })
   @IsOptional()
   @IsISO8601()

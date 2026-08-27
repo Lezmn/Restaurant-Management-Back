@@ -16,7 +16,16 @@ import { OrderItemInputDto } from './dto/order-item-input.dto';
 
 const ORDER_INCLUDE = {
   table: true,
-  tableSession: true,
+  tableSession: {
+    select: {
+      id: true,
+      status: true,
+      openedAt: true,
+      closedAt: true,
+      expiresAt: true,
+      tableId: true,
+    },
+  },
   items: { include: { menuItem: true, selectedOptions: { include: { menuOption: true } } } },
 } as const;
 

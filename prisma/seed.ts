@@ -99,18 +99,14 @@ async function upsertTable(number: number, seats = 4) {
 async function upsertServiceRequest(data: {
   tableId: string;
   tableSessionId?: string;
-  orderId?: string;
   type: ServiceRequestType;
-  message?: string;
   status?: ServiceRequestStatus;
 }) {
   const existing = await prisma.serviceRequest.findFirst({
     where: {
       tableId: data.tableId,
       tableSessionId: data.tableSessionId,
-      orderId: data.orderId,
       type: data.type,
-      message: data.message,
     },
   });
 
@@ -129,9 +125,7 @@ async function upsertServiceRequest(data: {
     data: {
       tableId: data.tableId,
       tableSessionId: data.tableSessionId,
-      orderId: data.orderId,
       type: data.type,
-      message: data.message,
       status: data.status ?? ServiceRequestStatus.PENDING,
       resolvedAt:
         data.status === ServiceRequestStatus.RESOLVED ? new Date() : undefined,
@@ -383,13 +377,11 @@ async function main() {
       tableId: tables[1].id,
       tableSessionId: demoSession.id,
       type: ServiceRequestType.CALL_STAFF,
-      message: 'ขอน้ำแข็งเพิ่มครับ',
     }),
     upsertServiceRequest({
       tableId: tables[1].id,
       tableSessionId: demoSession.id,
       type: ServiceRequestType.CHECKOUT,
-      message: 'ขอคิดเงินโต๊ะ 2',
     }),
   ]);
 

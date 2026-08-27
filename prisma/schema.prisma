@@ -155,7 +155,6 @@ model Order {
   tableSessionId String?
 
   items   OrderItem[]
-  serviceRequests ServiceRequest[]
 
   @@index([tableId, status])
   @@index([tableSessionId])
@@ -213,7 +212,6 @@ model ServiceRequest {
   id        String               @id @default(uuid())
   type      ServiceRequestType
   status    ServiceRequestStatus @default(PENDING)
-  message   String?
   createdAt DateTime             @default(now())
   resolvedAt DateTime?
 
@@ -223,12 +221,8 @@ model ServiceRequest {
   tableSession   TableSession? @relation(fields: [tableSessionId], references: [id])
   tableSessionId String?
 
-  order   Order? @relation(fields: [orderId], references: [id])
-  orderId String?
-
   @@index([tableId, status])
   @@index([tableSessionId, status])
-  @@index([orderId])
   @@map("service_requests")
 }
 

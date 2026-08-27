@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { OrderStatus, Prisma, TableSessionStatus } from '@prisma/client';
 import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ServiceRequestsService } from '../service-requests/service-requests.service';
 import { CallStaffDto } from './dto/call-staff.dto';
 import { CreateCustomerOrderDto } from './dto/create-customer-order.dto';
 
@@ -20,6 +21,7 @@ export class PublicService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ordersService: OrdersService,
+    private readonly serviceRequestsService: ServiceRequestsService,
   ) {}
 
   getMenu() {
@@ -92,11 +94,16 @@ export class PublicService {
   }
 
   async callStaff(dto: CallStaffDto) {
-    const session = await this.getOpenSession(dto.sessionToken);
+    const request =
+      await this.serviceRequestsService.createCallStaffFromSessionToken(
+        dto.sessionToken,
+      );
     return {
       ok: true,
-      tableNumber: session.table.number,
-      message: dto.message ?? 'ลูกค้าเรียกพนักงาน',
+      id: request.id,
+      status: request.status,
+      tableNumber: request.table.number,
+      createdAt: request.createdAt,
     };
   }
 

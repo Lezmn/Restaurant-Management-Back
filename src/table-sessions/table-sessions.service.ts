@@ -9,13 +9,17 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTableSessionDto } from './dto/create-table-session.dto';
 
+const DEFAULT_SESSION_TTL_MS = 3 * 60 * 60 * 1000;
+
 @Injectable()
 export class TableSessionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateTableSessionDto) {
-    const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : undefined;
-    if (expiresAt && expiresAt <= new Date()) {
+    const expiresAt = dto.expiresAt
+      ? new Date(dto.expiresAt)
+      : new Date(Date.now() + DEFAULT_SESSION_TTL_MS);
+    if (expiresAt <= new Date()) {
       throw new BadRequestException('expiresAt ต้องเป็นเวลาในอนาคต');
     }
 
