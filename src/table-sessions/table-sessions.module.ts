@@ -7,5 +7,6 @@ import { TableSessionsService } from './table-sessions.service';
   imports: [PrismaModule],
   controllers: [TableSessionsController],
   providers: [TableSessionsService],
+  exports: [TableSessionsService],
 })
 export class TableSessionsModule {}

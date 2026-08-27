@@ -1,12 +1,14 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Role, ServiceRequestStatus, ServiceRequestType } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CreateServiceRequestDto } from './dto/create-service-request.dto';
 import { FindServiceRequestsQueryDto } from './dto/find-service-requests-query.dto';
+import { UpdatePaymentMethodDto } from './dto/update-payment-method.dto';
 import { ServiceRequestsService } from './service-requests.service';
 
 @ApiTags('service-requests')
+@ApiBearerAuth()
 @Controller('service-requests')
 export class ServiceRequestsController {
   constructor(
@@ -36,6 +38,19 @@ export class ServiceRequestsController {
   @ApiOperation({ summary: 'ดูคำขอจากโต๊ะตาม id' })
   findOne(@Param('id') id: string) {
     return this.serviceRequestsService.findOne(id);
+  }
+
+  @Patch(':id/payment-method')
+  @Roles(Role.ADMIN, Role.WAITER, Role.CASHIER)
+  @ApiOperation({ summary: 'แก้ไขวิธีจ่ายเงินของคำขอเช็คบิล (เฉพาะ type=CHECKOUT)' })
+  updatePaymentMethod(
+    @Param('id') id: string,
+    @Body() dto: UpdatePaymentMethodDto,
+  ) {
+    return this.serviceRequestsService.updatePaymentMethod(
+      id,
+      dto.paymentMethod,
+    );
   }
 
   @Patch(':id/resolve')

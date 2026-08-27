@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../auth/decorators/public.decorator';
 import { CallStaffDto } from './dto/call-staff.dto';
+import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCustomerOrderDto } from './dto/create-customer-order.dto';
 import { PublicService } from './public.service';
 
@@ -48,5 +49,11 @@ export class PublicController {
   @ApiOperation({ summary: 'ลูกค้าเรียกพนักงานจากโต๊ะ' })
   callStaff(@Body() dto: CallStaffDto) {
     return this.publicService.callStaff(dto);
+  }
+
+  @Post('checkout')
+  @ApiOperation({ summary: 'ลูกค้าขอเช็คบิลพร้อมเลือกวิธีจ่ายเงิน' })
+  checkout(@Body() dto: CheckoutDto) {
+    return this.publicService.checkout(dto);
   }
 }

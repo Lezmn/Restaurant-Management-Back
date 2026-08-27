@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { TableSessionsModule } from './table-sessions/table-sessions.module';
 import { PublicModule } from './public/public.module';
 import { ServiceRequestsModule } from './service-requests/service-requests.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ServiceRequestsModule } from './service-requests/service-requests.modul
     TableSessionsModule,
     PublicModule,
     ServiceRequestsModule,
+    UsersModule,
     AuthModule,
   ],
 })

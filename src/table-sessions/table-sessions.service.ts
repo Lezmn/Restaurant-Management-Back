@@ -4,7 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus, Prisma, TableSessionStatus, TableStatus } from '@prisma/client';
+import {
+  OrderStatus,
+  Prisma,
+  ServiceRequestStatus,
+  ServiceRequestType,
+  TableSessionStatus,
+  TableStatus,
+} from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTableSessionDto } from './dto/create-table-session.dto';
@@ -60,23 +67,52 @@ export class TableSessionsService {
     });
   }
 
-  findAll(status?: TableSessionStatus) {
-    return this.prisma.tableSession.findMany({
+  async findAll(status?: TableSessionStatus) {
+    const sessions = await this.prisma.tableSession.findMany({
       where: { status },
-      include: { table: true, orders: true },
+      include: {
+        table: true,
+        orders: {
+          include: { items: { include: { selectedOptions: true } } },
+        },
+        serviceRequests: {
+          where: {
+            type: ServiceRequestType.CHECKOUT,
+            status: ServiceRequestStatus.PENDING,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
       orderBy: { openedAt: 'desc' },
     });
+
+    return sessions.map((session) => this.toSessionSummary(session));
   }
 
   async findOne(id: string) {
     const session = await this.prisma.tableSession.findUnique({
       where: { id },
-      include: { table: true, orders: { orderBy: { createdAt: 'desc' } } },
+      include: {
+        table: true,
+        orders: {
+          include: { items: { include: { selectedOptions: true } } },
+          orderBy: { createdAt: 'desc' },
+        },
+        serviceRequests: {
+          where: {
+            type: ServiceRequestType.CHECKOUT,
+            status: ServiceRequestStatus.PENDING,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
     });
     if (!session) {
       throw new NotFoundException(`ไม่พบ QR session id: ${id}`);
     }
-    return session;
+    return this.toSessionSummary(session);
   }
 
   async close(id: string) {
@@ -85,7 +121,7 @@ export class TableSessionsService {
       return session;
     }
 
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const openOrderCount = await tx.order.count({
         where: {
           tableSessionId: id,
@@ -99,22 +135,103 @@ export class TableSessionsService {
         throw new ConflictException('ยังมีออเดอร์ที่ไม่ปิดใน session นี้');
       }
 
-      const closed = await tx.tableSession.update({
+      await tx.tableSession.update({
         where: { id },
         data: { status: TableSessionStatus.CLOSED, closedAt: new Date() },
-        include: { table: true, orders: true },
       });
 
       await tx.restaurantTable.update({
         where: { id: session.tableId },
         data: { status: TableStatus.AVAILABLE },
       });
-
-      return closed;
     });
+
+    return this.findOne(id);
+  }
+
+  /** ใช้ร่วมกันโดย public/service-requests เพื่อ resolve + validate QR session จาก token */
+  async resolveOpenSessionByToken(token: string) {
+    if (!token) {
+      throw new BadRequestException('ต้องส่ง sessionToken');
+    }
+
+    const session = await this.prisma.tableSession.findUnique({
+      where: { token },
+      include: { table: true },
+    });
+    if (!session) {
+      throw new NotFoundException('ไม่พบ QR session นี้');
+    }
+    if (session.status !== TableSessionStatus.OPEN) {
+      throw new BadRequestException('QR session นี้ปิดแล้ว');
+    }
+    if (session.expiresAt && session.expiresAt < new Date()) {
+      await this.prisma.tableSession.update({
+        where: { id: session.id },
+        data: { status: TableSessionStatus.EXPIRED },
+      });
+      throw new BadRequestException('QR session นี้หมดอายุแล้ว');
+    }
+    return session;
   }
 
   private generateToken() {
     return randomBytes(24).toString('hex');
+  }
+
+  private toSessionSummary(
+    session: Prisma.TableSessionGetPayload<{
+      include: {
+        table: true;
+        orders: { include: { items: { include: { selectedOptions: true } } } };
+        serviceRequests: true;
+      };
+    }>,
+  ) {
+    const { serviceRequests, ...rest } = session;
+    const checkoutRequest =
+      serviceRequests
+        .filter(
+          (request) =>
+            request.type === ServiceRequestType.CHECKOUT &&
+            request.status === ServiceRequestStatus.PENDING,
+        )
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ??
+      null;
+
+    return {
+      ...rest,
+      total: this.calculateSessionTotal(session.orders),
+      billingStatus: checkoutRequest ? 'AWAITING_CHECKOUT' : 'IN_PROGRESS',
+      checkoutRequest: checkoutRequest
+        ? {
+            id: checkoutRequest.id,
+            paymentMethod: checkoutRequest.paymentMethod,
+            createdAt: checkoutRequest.createdAt,
+          }
+        : null,
+    };
+  }
+
+  private calculateSessionTotal(
+    orders: Prisma.OrderGetPayload<{
+      include: { items: { include: { selectedOptions: true } } };
+    }>[],
+  ) {
+    return orders
+      .filter((order) => order.status !== OrderStatus.CANCELLED)
+      .reduce(
+        (orderSum, order) =>
+          orderSum.plus(
+            order.items.reduce((itemSum, item) => {
+              const optionTotal = item.selectedOptions.reduce(
+                (optionSum, option) => optionSum.plus(option.price),
+                new Prisma.Decimal(0),
+              );
+              return itemSum.plus(item.unitPrice.plus(optionTotal).mul(item.quantity));
+            }, new Prisma.Decimal(0)),
+          ),
+        new Prisma.Decimal(0),
+      );
   }
 }

@@ -133,6 +133,32 @@ async function upsertServiceRequest(data: {
   });
 }
 
+async function upsertDemoOrder(params: {
+  tableId: string;
+  tableSessionId: string;
+  status: OrderStatus;
+  items: {
+    menuItemId: string;
+    quantity: number;
+    unitPrice: number;
+    note?: string;
+  }[];
+}) {
+  const existing = await prisma.order.findFirst({
+    where: { tableSessionId: params.tableSessionId, status: params.status },
+  });
+  if (existing) return existing;
+
+  return prisma.order.create({
+    data: {
+      tableId: params.tableId,
+      tableSessionId: params.tableSessionId,
+      status: params.status,
+      items: { create: params.items },
+    },
+  });
+}
+
 async function createReceiptForSession(tableSessionId: string) {
   const existingReceipt = await prisma.receipt.findUnique({
     where: { tableSessionId },
@@ -385,6 +411,56 @@ async function main() {
     }),
   ]);
 
+  // Give the open demo session (table 2) one order in each kitchen-board
+  // status, so the queue / preparing / served columns all have data.
+  await upsertDemoOrder({
+    tableId: tables[1].id,
+    tableSessionId: demoSession.id,
+    status: OrderStatus.PENDING,
+    items: [{ menuItemId: gaprao.id, quantity: 1, unitPrice: 50, note: 'เผ็ดน้อย' }],
+  });
+  await upsertDemoOrder({
+    tableId: tables[1].id,
+    tableSessionId: demoSession.id,
+    status: OrderStatus.PREPARING,
+    items: [{ menuItemId: friedRice.id, quantity: 2, unitPrice: 50 }],
+  });
+  await upsertDemoOrder({
+    tableId: tables[1].id,
+    tableSessionId: demoSession.id,
+    status: OrderStatus.SERVED,
+    items: [{ menuItemId: water.id, quantity: 2, unitPrice: 10 }],
+  });
+
+  // A second open session (table 4) whose orders are all SERVED, so the
+  // Check/checkout screen has a table that's actually ready to pay.
+  const demoReadySession = await prisma.tableSession.upsert({
+    where: { token: 'demo-table-4-ready-session' },
+    update: {
+      tableId: tables[3].id,
+      status: TableSessionStatus.OPEN,
+      closedAt: null,
+    },
+    create: {
+      tableId: tables[3].id,
+      token: 'demo-table-4-ready-session',
+      status: TableSessionStatus.OPEN,
+    },
+  });
+  await prisma.restaurantTable.update({
+    where: { id: tables[3].id },
+    data: { status: TableStatus.OCCUPIED },
+  });
+  await upsertDemoOrder({
+    tableId: tables[3].id,
+    tableSessionId: demoReadySession.id,
+    status: OrderStatus.SERVED,
+    items: [
+      { menuItemId: padSeeEw.id, quantity: 1, unitPrice: 50 },
+      { menuItemId: water.id, quantity: 2, unitPrice: 10 },
+    ],
+  });
+
   await createReceiptForSession(demoPaidSession.id);
 
   console.log('Seed completed');
@@ -394,9 +470,10 @@ async function main() {
     { role: Role.KITCHEN, email: 'kitchen@restaurant.local', password: seedPassword },
     { role: Role.CASHIER, email: 'cashier@restaurant.local', password: seedPassword },
   ]);
-  console.log('Created sample categories, menu items, menu options, tables, one active QR session, service requests, and a receipt for a paid order.');
-  console.log(`Demo QR session token: ${demoSession.token}`);
-  console.log(`Demo paid session token: ${demoPaidSession.token}`);
+  console.log('Created sample categories, menu items, menu options, tables, QR sessions (open with mixed-status orders, open ready-to-pay, and closed/paid), service requests, and a receipt for a paid order.');
+  console.log(`Demo QR session token (table 2, PENDING/PREPARING/SERVED orders): ${demoSession.token}`);
+  console.log(`Demo ready-to-pay session token (table 4, all SERVED): ${demoReadySession.token}`);
+  console.log(`Demo paid session token (table 1, closed): ${demoPaidSession.token}`);
 }
 
 main()

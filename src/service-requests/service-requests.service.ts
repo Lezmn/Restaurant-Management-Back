@@ -4,11 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  PaymentMethod,
   ServiceRequestStatus,
   ServiceRequestType,
-  TableSessionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TableSessionsService } from '../table-sessions/table-sessions.service';
 import { CreateServiceRequestDto } from './dto/create-service-request.dto';
 import { FindServiceRequestsQueryDto } from './dto/find-service-requests-query.dto';
 
@@ -28,7 +29,10 @@ const SERVICE_REQUEST_INCLUDE = {
 
 @Injectable()
 export class ServiceRequestsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tableSessionsService: TableSessionsService,
+  ) {}
 
   async create(dto: CreateServiceRequestDto) {
     const table = await this.prisma.restaurantTable.findUnique({
@@ -50,33 +54,47 @@ export class ServiceRequestsService {
   }
 
   async createCallStaffFromSessionToken(sessionToken: string) {
-    if (!sessionToken) {
-      throw new BadRequestException('ต้องส่ง sessionToken');
-    }
-
-    const session = await this.prisma.tableSession.findUnique({
-      where: { token: sessionToken },
-      include: { table: true },
-    });
-    if (!session) {
-      throw new NotFoundException('ไม่พบ QR session นี้');
-    }
-    if (session.status !== TableSessionStatus.OPEN) {
-      throw new BadRequestException('QR session นี้ปิดแล้ว');
-    }
-    if (session.expiresAt && session.expiresAt < new Date()) {
-      await this.prisma.tableSession.update({
-        where: { id: session.id },
-        data: { status: TableSessionStatus.EXPIRED },
-      });
-      throw new BadRequestException('QR session นี้หมดอายุแล้ว');
-    }
+    const session =
+      await this.tableSessionsService.resolveOpenSessionByToken(sessionToken);
 
     return this.prisma.serviceRequest.create({
       data: {
         tableId: session.tableId,
         tableSessionId: session.id,
         type: ServiceRequestType.CALL_STAFF,
+      },
+      include: SERVICE_REQUEST_INCLUDE,
+    });
+  }
+
+  async createCheckoutFromSessionToken(
+    sessionToken: string,
+    paymentMethod: PaymentMethod,
+  ) {
+    const session =
+      await this.tableSessionsService.resolveOpenSessionByToken(sessionToken);
+
+    const existingPending = await this.prisma.serviceRequest.findFirst({
+      where: {
+        tableSessionId: session.id,
+        type: ServiceRequestType.CHECKOUT,
+        status: ServiceRequestStatus.PENDING,
+      },
+    });
+    if (existingPending) {
+      return this.prisma.serviceRequest.update({
+        where: { id: existingPending.id },
+        data: { paymentMethod },
+        include: SERVICE_REQUEST_INCLUDE,
+      });
+    }
+
+    return this.prisma.serviceRequest.create({
+      data: {
+        tableId: session.tableId,
+        tableSessionId: session.id,
+        type: ServiceRequestType.CHECKOUT,
+        paymentMethod,
       },
       include: SERVICE_REQUEST_INCLUDE,
     });
@@ -114,6 +132,20 @@ export class ServiceRequestsService {
         status: ServiceRequestStatus.RESOLVED,
         resolvedAt: new Date(),
       },
+      include: SERVICE_REQUEST_INCLUDE,
+    });
+  }
+
+  async updatePaymentMethod(id: string, paymentMethod: PaymentMethod) {
+    const request = await this.findOne(id);
+    if (request.type !== ServiceRequestType.CHECKOUT) {
+      throw new BadRequestException(
+        'แก้ไขวิธีจ่ายเงินได้เฉพาะคำขอประเภทเช็คบิลเท่านั้น',
+      );
+    }
+    return this.prisma.serviceRequest.update({
+      where: { id },
+      data: { paymentMethod },
       include: SERVICE_REQUEST_INCLUDE,
     });
   }

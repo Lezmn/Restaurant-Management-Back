@@ -215,6 +215,9 @@ model ServiceRequest {
   createdAt DateTime             @default(now())
   resolvedAt DateTime?
 
+  // เฉพาะ type=CHECKOUT: วิธีจ่ายเงินที่ลูกค้าเลือกไว้ตอนขอเช็คบิล (แคชเชียร์แก้ไขได้ก่อนชำระจริง)
+  paymentMethod PaymentMethod?
+
   table   RestaurantTable @relation(fields: [tableId], references: [id])
   tableId String
 

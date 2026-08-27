@@ -1,11 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags, ApiQuery } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery } from '@nestjs/swagger';
 import { Role, TableSessionStatus } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CreateTableSessionDto } from './dto/create-table-session.dto';
 import { TableSessionsService } from './table-sessions.service';
 
 @ApiTags('table-sessions')
+@ApiBearerAuth()
 @Controller('table-sessions')
 export class TableSessionsController {
   constructor(private readonly tableSessionsService: TableSessionsService) {}

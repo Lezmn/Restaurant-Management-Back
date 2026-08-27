@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrderStatus, Prisma, TableSessionStatus } from '@prisma/client';
+import { OrderStatus, Prisma } from '@prisma/client';
 import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ServiceRequestsService } from '../service-requests/service-requests.service';
+import { TableSessionsService } from '../table-sessions/table-sessions.service';
 import { CallStaffDto } from './dto/call-staff.dto';
+import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCustomerOrderDto } from './dto/create-customer-order.dto';
 
 const PUBLIC_ORDER_INCLUDE = {
@@ -22,6 +24,7 @@ export class PublicService {
     private readonly prisma: PrismaService,
     private readonly ordersService: OrdersService,
     private readonly serviceRequestsService: ServiceRequestsService,
+    private readonly tableSessionsService: TableSessionsService,
   ) {}
 
   getMenu() {
@@ -107,29 +110,24 @@ export class PublicService {
     };
   }
 
-  private async getOpenSession(token: string) {
-    if (!token) {
-      throw new BadRequestException('ต้องส่ง sessionToken');
-    }
+  async checkout(dto: CheckoutDto) {
+    const request =
+      await this.serviceRequestsService.createCheckoutFromSessionToken(
+        dto.sessionToken,
+        dto.paymentMethod,
+      );
+    return {
+      ok: true,
+      id: request.id,
+      status: request.status,
+      paymentMethod: request.paymentMethod,
+      tableNumber: request.table.number,
+      createdAt: request.createdAt,
+    };
+  }
 
-    const session = await this.prisma.tableSession.findUnique({
-      where: { token },
-      include: { table: true },
-    });
-    if (!session) {
-      throw new NotFoundException('ไม่พบ QR session นี้');
-    }
-    if (session.status !== TableSessionStatus.OPEN) {
-      throw new BadRequestException('QR session นี้ปิดแล้ว');
-    }
-    if (session.expiresAt && session.expiresAt < new Date()) {
-      await this.prisma.tableSession.update({
-        where: { id: session.id },
-        data: { status: TableSessionStatus.EXPIRED },
-      });
-      throw new BadRequestException('QR session นี้หมดอายุแล้ว');
-    }
-    return session;
+  private getOpenSession(token: string) {
+    return this.tableSessionsService.resolveOpenSessionByToken(token);
   }
 
   private toPublicOrder(

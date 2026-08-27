@@ -10,14 +10,31 @@ restaurant-app/
 ├── Dockerfile
 ├── .env.example
 ├── prisma/
-│   ├── schema.prisma      # data model หลัก (User, MenuItem, Order, Table, Payment ...)
+│   ├── schema.prisma      # data model หลัก (User, Category, MenuItem, MenuOption,
+│   │                      #   RestaurantTable, TableSession, Order, OrderItem,
+│   │                      #   OrderItemOption, Payment, Receipt, ReceiptItem, ServiceRequest)
 │   └── seed.ts            # seed ข้อมูลตัวอย่าง
 └── src/
-    ├── main.ts
-    ├── app.module.ts
+    ├── main.ts             # bootstrap + ValidationPipe + Swagger setup
+    ├── app.module.ts       # root module รวมทุก feature module
     ├── prisma/             # PrismaService แบบ global module
-    └── menu/               
+    ├── auth/               # login, JWT strategy, JwtAuthGuard + RolesGuard (global)
+    ├── categories/         # จัดการหมวดหมู่เมนู
+    ├── menu/               # จัดการเมนู + option ของเมนู
+    ├── tables/             # จัดการโต๊ะ
+    ├── table-sessions/     # เปิด/ปิด QR session ต่อโต๊ะ
+    ├── orders/             # ออเดอร์ + รายการสั่งในออเดอร์
+    ├── payments/           # ชำระเงินต่อ session (ออก receipt อัตโนมัติ)
+    ├── service-requests/   # คำขอจากโต๊ะ เช่น เรียกพนักงาน, ขอเช็คบิล
+    └── public/             # endpoint ฝั่งลูกค้า (ไม่ต้อง login) ใช้คู่กับ QR session
 ```
+
+## Auth
+
+- Login ผ่าน `POST /auth/login` ได้ JWT กลับมา ใช้แนบใน header `Authorization: Bearer <token>`
+- Guard เป็น global (`JwtAuthGuard` + `RolesGuard`) ทุก endpoint ต้อง login ตามค่าเริ่มต้น
+- ใส่ `@Public()` ที่ controller/route เพื่อยกเว้นการ login (ใช้กับ `auth/login` และ endpoint ใน `public/` ทั้งหมด)
+- ใส่ `@Roles(Role.ADMIN, ...)` เพื่อจำกัดสิทธิ์ตาม role: `ADMIN`, `CASHIER`, `KITCHEN`, `WAITER`
 
 ## วิธีรัน (เลือกวิธีใดวิธีหนึ่ง)
 
@@ -64,9 +81,7 @@ npm run start:dev
 | `npx prisma migrate dev --name <ชื่อ>` | สร้าง migration ใหม่หลังแก้ schema |
 | `npx prisma generate` | generate Prisma Client ใหม่ (รันอัตโนมัติหลัง install อยู่แล้ว) |
 
-## ขั้นตอนถัดไปที่แนะนำ
+## API Docs
 
-
-2. **Auth**: ติดตั้ง `@nestjs/passport`, `@nestjs/jwt`, `passport-jwt`, `bcrypt` แล้วสร้าง `AuthModule` + `JwtStrategy` + `RolesGuard` เพื่อแยกสิทธิ์ admin/cashier/kitchen/waiter
-3. **Order logic**: OrderItem ต้อง snapshot ราคา ณ ตอนสั่ง (`unitPrice`) ไม่ควร reference ราคาปัจจุบันของ MenuItem เพราะราคาอาจเปลี่ยนทีหลัง (schema นี้ทำไว้ให้แล้ว)
-4. **Testing**: เพิ่ม Jest e2e test ยิง endpoint จริงผ่าน test database
+ดูรายการ endpoint ทั้งหมด (path, method, role, request/response) ได้ที่ Swagger: `http://localhost:3000/docs`
+ยังขาดส่วนที่ใช้ในการทำ Dashboard และพวกรายจ่าย

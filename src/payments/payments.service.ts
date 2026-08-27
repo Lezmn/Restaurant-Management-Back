@@ -3,6 +3,16 @@ import { OrderStatus, Prisma, TableSessionStatus, TableStatus } from '@prisma/cl
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 
+const TABLE_SESSION_SELECT = {
+  id: true,
+  status: true,
+  openedAt: true,
+  closedAt: true,
+  expiresAt: true,
+  tableId: true,
+  table: true,
+} as const;
+
 @Injectable()
 export class PaymentsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -92,6 +102,30 @@ export class PaymentsService {
 
       return { ...payment, receipt };
     });
+  }
+
+  findAll() {
+    return this.prisma.payment.findMany({
+      include: {
+        receipt: true,
+        tableSession: { select: TABLE_SESSION_SELECT },
+      },
+      orderBy: { paidAt: 'desc' },
+    });
+  }
+
+  async findOne(id: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id },
+      include: {
+        receipt: { include: { items: true } },
+        tableSession: { select: TABLE_SESSION_SELECT },
+      },
+    });
+    if (!payment) {
+      throw new NotFoundException(`ไม่พบการชำระเงิน id: ${id}`);
+    }
+    return payment;
   }
 
   private buildReceiptItems(

@@ -8,7 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Role, TableStatus } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { TablesService } from './tables.service';
@@ -16,6 +16,7 @@ import { CreateTableDto } from './dto/create-table.dto';
 import { UpdateTableDto } from './dto/update-table.dto';
 
 @ApiTags('tables')
+@ApiBearerAuth()
 @Controller('tables')
 export class TablesController {
   constructor(private readonly tablesService: TablesService) {}

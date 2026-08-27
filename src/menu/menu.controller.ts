@@ -8,7 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { MenuService } from './menu.service';
@@ -17,6 +17,7 @@ import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CreateMenuOptionDto } from './dto/create-menu-option.dto';
 
 @ApiTags('menu')
+@ApiBearerAuth()
 @Controller('menu')
 export class MenuController {
   constructor(private readonly menuService: MenuService) {}
