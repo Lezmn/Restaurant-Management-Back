@@ -3,16 +3,16 @@ version: "3.9"
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: restaurant_postgres
+    container_name: restaurant_postgres_dev
     restart: unless-stopped
     environment:
       POSTGRES_USER: restaurant
       POSTGRES_PASSWORD: restaurant_pass
       POSTGRES_DB: restaurant_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_dev:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U restaurant -d restaurant_db"]
       interval: 5s
@@ -53,4 +53,4 @@ services:
         condition: service_healthy
 
 volumes:
-  postgres_data:
+  postgres_data_dev:

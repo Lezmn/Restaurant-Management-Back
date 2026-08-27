@@ -8,6 +8,7 @@ import {
   TableStatus,
   MenuItem,
   Prisma,
+  TableSessionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -15,7 +16,7 @@ import { OrderItemInputDto } from './dto/order-item-input.dto';
 
 const ORDER_INCLUDE = {
   table: true,
-  waiter: { select: { id: true, name: true, role: true } },
+  tableSession: true,
   items: { include: { menuItem: true, selectedOptions: { include: { menuOption: true } } } },
   payment: true,
 } as const;
@@ -30,14 +31,6 @@ export class OrdersService {
     });
     if (!table) {
       throw new NotFoundException(`ไม่พบโต๊ะ id: ${dto.tableId}`);
-    }
-
-    const waiter = await this.prisma.user.findUnique({
-      where: { id: dto.waiterId },
-      select: { id: true },
-    });
-    if (!waiter) {
-      throw new NotFoundException(`ไม่พบพนักงาน id: ${dto.waiterId}`);
     }
 
     const menuItems = await this.prisma.menuItem.findMany({
@@ -61,27 +54,54 @@ export class OrdersService {
       const order = await tx.order.create({
         data: {
           tableId: dto.tableId,
-          waiterId: dto.waiterId,
-          items: {
-            create: dto.items.map((item) => {
-              const menuItem = menuItems.find(
-                (m: MenuItem) => m.id === item.menuItemId,
-              )!;
-              const selectedOptions = this.resolveSelectedOptions(item, menuItem);
-              return {
-                menuItemId: item.menuItemId,
-                quantity: item.quantity,
-                unitPrice: menuItem.price, // snapshot ราคา ณ ตอนสั่ง
-                note: item.note,
-                selectedOptions: { create: selectedOptions },
-              };
-            }),
-          },
+          items: { create: this.buildOrderItems(dto.items, menuItems) },
         },
         include: ORDER_INCLUDE,
       });
 
       return order;
+    });
+  }
+
+  async createFromTableSession(sessionToken: string, items: OrderItemInputDto[]) {
+    const session = await this.prisma.tableSession.findUnique({
+      where: { token: sessionToken },
+      include: { table: true },
+    });
+    if (!session) {
+      throw new NotFoundException('ไม่พบ QR session นี้');
+    }
+    if (session.status !== TableSessionStatus.OPEN) {
+      throw new BadRequestException('QR session นี้ปิดแล้ว');
+    }
+    if (session.expiresAt && session.expiresAt < new Date()) {
+      await this.prisma.tableSession.update({
+        where: { id: session.id },
+        data: { status: TableSessionStatus.EXPIRED },
+      });
+      throw new BadRequestException('QR session นี้หมดอายุแล้ว');
+    }
+
+    const menuItems = await this.prisma.menuItem.findMany({
+      where: { id: { in: items.map((i) => i.menuItemId) } },
+      include: { options: true },
+    });
+    this.assertAllMenuItemsExistAndAvailable(items, menuItems);
+
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.restaurantTable.update({
+        where: { id: session.tableId },
+        data: { status: TableStatus.OCCUPIED },
+      });
+
+      return tx.order.create({
+        data: {
+          tableId: session.tableId,
+          tableSessionId: session.id,
+          items: { create: this.buildOrderItems(items, menuItems) },
+        },
+        include: ORDER_INCLUDE,
+      });
     });
   }
 
@@ -209,6 +229,25 @@ export class OrdersService {
       name: option.name,
       price: option.price,
     }));
+  }
+
+  private buildOrderItems(
+    items: OrderItemInputDto[],
+    menuItems: Prisma.MenuItemGetPayload<{ include: { options: true } }>[],
+  ) {
+    return items.map((item) => {
+      const menuItem = menuItems.find(
+        (m: MenuItem) => m.id === item.menuItemId,
+      )!;
+      const selectedOptions = this.resolveSelectedOptions(item, menuItem);
+      return {
+        menuItemId: item.menuItemId,
+        quantity: item.quantity,
+        unitPrice: menuItem.price,
+        note: item.note,
+        selectedOptions: { create: selectedOptions },
+      };
+    });
   }
 
   private calculateLineTotal(item: {

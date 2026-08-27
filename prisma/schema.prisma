@@ -35,6 +35,12 @@ enum PaymentMethod {
   PROMPTPAY
 }
 
+enum TableSessionStatus {
+  OPEN
+  CLOSED
+  EXPIRED
+}
+
 model User {
   id        String   @id @default(uuid())
   name      String
@@ -43,8 +49,6 @@ model User {
   role      Role     @default(WAITER)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  orders Order[]
 
   @@map("users")
 }
@@ -99,8 +103,26 @@ model RestaurantTable {
   seats  Int         @default(4)
   status TableStatus @default(AVAILABLE)
   orders Order[]
+  sessions TableSession[]
 
   @@map("restaurant_tables")
+}
+
+model TableSession {
+  id        String             @id @default(uuid())
+  token     String             @unique
+  status    TableSessionStatus @default(OPEN)
+  openedAt  DateTime           @default(now())
+  closedAt  DateTime?
+  expiresAt DateTime?
+
+  table   RestaurantTable @relation(fields: [tableId], references: [id])
+  tableId String
+
+  orders Order[]
+
+  @@index([tableId, status])
+  @@map("table_sessions")
 }
 
 model Order {
@@ -112,14 +134,14 @@ model Order {
   table   RestaurantTable @relation(fields: [tableId], references: [id])
   tableId String
 
-  waiter   User   @relation(fields: [waiterId], references: [id])
-  waiterId String
+  tableSession   TableSession? @relation(fields: [tableSessionId], references: [id])
+  tableSessionId String?
 
   items   OrderItem[]
   payment Payment?
 
   @@index([tableId, status])
-  @@index([waiterId])
+  @@index([tableSessionId])
   @@map("orders")
 }
 

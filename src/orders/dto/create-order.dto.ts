@@ -8,10 +8,6 @@ export class CreateOrderDto {
   @IsUUID()
   tableId: string;
 
-  @ApiProperty({ example: 'waiter-user-uuid' })
-  @IsUUID()
-  waiterId: string;
-
   @ApiProperty({ type: [OrderItemInputDto] })
   @IsArray()
   @ArrayMinSize(1)

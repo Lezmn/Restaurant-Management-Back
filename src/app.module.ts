@@ -7,6 +7,8 @@ import { CategoriesModule } from './categories/categories.module';
 import { TablesModule } from './tables/tables.module';
 import { PaymentsModule } from './payments/payments.module';
 import { AuthModule } from './auth/auth.module';
+import { TableSessionsModule } from './table-sessions/table-sessions.module';
+import { PublicModule } from './public/public.module';
 
 @Module({
   imports: [
@@ -17,6 +19,8 @@ import { AuthModule } from './auth/auth.module';
     TablesModule,
     OrdersModule,
     PaymentsModule,
+    TableSessionsModule,
+    PublicModule,
     AuthModule,
   ],
 })

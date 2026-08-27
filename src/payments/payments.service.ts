@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrderStatus, Prisma, TableStatus } from '@prisma/client';
+import { OrderStatus, Prisma, TableSessionStatus, TableStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 
@@ -34,10 +34,31 @@ export class PaymentsService {
         data: { orderId: order.id, amount, method: dto.method },
       });
       await tx.order.update({ where: { id: order.id }, data: { status: OrderStatus.PAID } });
-      await tx.restaurantTable.update({
-        where: { id: order.tableId },
-        data: { status: TableStatus.AVAILABLE },
+
+      const remainingOpenOrders = await tx.order.count({
+        where: {
+          tableId: order.tableId,
+          id: { not: order.id },
+          status: {
+            in: [OrderStatus.PENDING, OrderStatus.PREPARING, OrderStatus.SERVED],
+          },
+        },
       });
+
+      if (remainingOpenOrders === 0) {
+        if (order.tableSessionId) {
+          await tx.tableSession.update({
+            where: { id: order.tableSessionId },
+            data: { status: TableSessionStatus.CLOSED, closedAt: new Date() },
+          });
+        }
+
+        await tx.restaurantTable.update({
+          where: { id: order.tableId },
+          data: { status: TableStatus.AVAILABLE },
+        });
+      }
+
       return payment;
     });
   }

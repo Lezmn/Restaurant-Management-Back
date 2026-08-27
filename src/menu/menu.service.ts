@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
@@ -8,8 +9,20 @@ import { CreateMenuOptionDto } from './dto/create-menu-option.dto';
 export class MenuService {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(dto: CreateMenuItemDto) {
-    return this.prisma.menuItem.create({ data: dto });
+  async create(dto: CreateMenuItemDto) {
+    const category = await this.prisma.category.findUnique({
+      where: { id: dto.categoryId },
+      select: { id: true },
+    });
+    if (!category) {
+      throw new NotFoundException(`ไม่พบหมวดหมู่ id: ${dto.categoryId}`);
+    }
+
+    try {
+      return await this.prisma.menuItem.create({ data: dto });
+    } catch (e) {
+      throw this.mapPrismaError(e);
+    }
   }
 
   findAll(params?: { categoryId?: string; onlyAvailable?: boolean }) {
@@ -46,6 +59,21 @@ export class MenuService {
 
   async createOption(menuItemId: string, dto: CreateMenuOptionDto) {
     await this.findOne(menuItemId);
-    return this.prisma.menuOption.create({ data: { menuItemId, ...dto } });
+    try {
+      return await this.prisma.menuOption.create({ data: { menuItemId, ...dto } });
+    } catch (e) {
+      throw this.mapPrismaError(e);
+    }
+  }
+
+  private mapPrismaError(e: unknown): Error {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === 'P2003'
+    ) {
+      return new BadRequestException('ข้อมูลที่อ้างอิงไม่ถูกต้อง เช่น categoryId หรือ menuItemId');
+    }
+
+    return e as Error;
   }
 }
