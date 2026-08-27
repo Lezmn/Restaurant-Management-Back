@@ -15,7 +15,9 @@ export class PaymentsService {
           payment: true,
           orders: {
             where: { status: { not: OrderStatus.CANCELLED } },
-            include: { items: { include: { selectedOptions: true } } },
+            include: {
+              items: { include: { menuItem: true, selectedOptions: true } },
+            },
           },
         },
       });
@@ -74,7 +76,68 @@ export class PaymentsService {
         data: { status: TableStatus.AVAILABLE },
       });
 
-      return payment;
+      const receiptNumber = await this.generateReceiptNumber(tx);
+      const receipt = await tx.receipt.create({
+        data: {
+          number: receiptNumber,
+          subtotal: amount,
+          total: amount,
+          paymentId: payment.id,
+          tableId: session.tableId,
+          tableSessionId: session.id,
+          items: { create: this.buildReceiptItems(session.orders) },
+        },
+        include: { items: true },
+      });
+
+      return { ...payment, receipt };
     });
+  }
+
+  private buildReceiptItems(
+    orders: Prisma.TableSessionGetPayload<{
+      include: {
+        orders: {
+          include: {
+            items: { include: { menuItem: true; selectedOptions: true } };
+          };
+        };
+      };
+    }>['orders'],
+  ) {
+    return orders.flatMap((order) =>
+      order.items.map((item) => {
+        const optionTotal = item.selectedOptions.reduce(
+          (sum, option) => sum.plus(option.price),
+          new Prisma.Decimal(0),
+        );
+        const lineTotal = item.unitPrice.plus(optionTotal).mul(item.quantity);
+
+        return {
+          name: item.menuItem.name,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          optionTotal,
+          lineTotal,
+          note: item.note,
+          orderId: order.id,
+        };
+      }),
+    );
+  }
+
+  private async generateReceiptNumber(tx: Prisma.TransactionClient) {
+    const now = new Date();
+    const datePrefix = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+
+    const todayCount = await tx.receipt.count({
+      where: {
+        issuedAt: {
+          gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+        },
+      },
+    });
+
+    return `RCPT-${datePrefix}-${String(todayCount + 1).padStart(4, '0')}`;
   }
 }
