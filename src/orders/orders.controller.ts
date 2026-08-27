@@ -8,11 +8,12 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { OrderStatus, Role } from '@prisma/client';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { FindOrdersQueryDto } from './dto/find-orders-query.dto';
 import { OrderItemInputDto } from './dto/order-item-input.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
@@ -29,15 +30,9 @@ export class OrdersController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'ดึงรายการออเดอร์ทั้งหมด (filter ตามสถานะได้)' })
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    description: 'กรองออเดอร์ตามสถานะ ถ้าไม่ส่งจะดึงทุกออเดอร์',
-    enum: OrderStatus,
-  })
-  findAll(@Query('status') status?: OrderStatus) {
-    return this.ordersService.findAll(status);
+  @ApiOperation({ summary: 'ดึงรายการออเดอร์ทั้งหมด (filter ได้)' })
+  findAll(@Query() query: FindOrdersQueryDto) {
+    return this.ordersService.findAll(query);
   }
 
   @Get(':id')

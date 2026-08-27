@@ -12,6 +12,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { FindOrdersQueryDto } from './dto/find-orders-query.dto';
 import { OrderItemInputDto } from './dto/order-item-input.dto';
 
 const ORDER_INCLUDE = {
@@ -113,9 +114,13 @@ export class OrdersService {
     });
   }
 
-  findAll(status?: OrderStatus) {
+  findAll(query: FindOrdersQueryDto) {
     return this.prisma.order.findMany({
-      where: { status },
+      where: {
+        status: query.status,
+        tableId: query.tableId,
+        tableSessionId: query.tableSessionId,
+      },
       include: ORDER_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
