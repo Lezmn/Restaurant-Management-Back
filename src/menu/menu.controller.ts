@@ -1,0 +1,69 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { MenuService } from './menu.service';
+import { CreateMenuItemDto } from './dto/create-menu-item.dto';
+import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
+import { CreateMenuOptionDto } from './dto/create-menu-option.dto';
+
+@ApiTags('menu')
+@Controller('menu')
+export class MenuController {
+  constructor(private readonly menuService: MenuService) {}
+
+  @Post()
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'เพิ่มเมนูใหม่' })
+  create(@Body() dto: CreateMenuItemDto) {
+    return this.menuService.create(dto);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'ดึงรายการเมนูทั้งหมด (filter ตาม category ได้)' })
+  findAll(
+    @Query('categoryId') categoryId?: string,
+    @Query('onlyAvailable') onlyAvailable?: string,
+  ) {
+    return this.menuService.findAll({
+      categoryId,
+      onlyAvailable: onlyAvailable === 'true',
+    });
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'ดึงเมนูตาม id' })
+  findOne(@Param('id') id: string) {
+    return this.menuService.findOne(id);
+  }
+
+  @Patch(':id')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'แก้ไขเมนู' })
+  update(@Param('id') id: string, @Body() dto: UpdateMenuItemDto) {
+    return this.menuService.update(id, dto);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'ลบเมนู' })
+  remove(@Param('id') id: string) {
+    return this.menuService.remove(id);
+  }
+
+  @Post(':id/options')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'เพิ่มตัวเลือกให้เมนู เช่น หมู หรือ ไข่ดาว' })
+  createOption(@Param('id') id: string, @Body() dto: CreateMenuOptionDto) {
+    return this.menuService.createOption(id, dto);
+  }
+}

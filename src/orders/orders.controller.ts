@@ -1,0 +1,69 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { OrderStatus, Role } from '@prisma/client';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { OrdersService } from './orders.service';
+import { CreateOrderDto } from './dto/create-order.dto';
+import { OrderItemInputDto } from './dto/order-item-input.dto';
+import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+
+@ApiTags('orders')
+@Controller('orders')
+export class OrdersController {
+  constructor(private readonly ordersService: OrdersService) {}
+
+  @Post()
+  @Roles(Role.ADMIN, Role.WAITER)
+  @ApiOperation({ summary: 'สร้างออเดอร์ใหม่ (ผูกกับโต๊ะ + รายการเมนู)' })
+  create(@Body() dto: CreateOrderDto) {
+    return this.ordersService.create(dto);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'ดึงรายการออเดอร์ทั้งหมด (filter ตามสถานะได้)' })
+  findAll(@Query('status') status?: OrderStatus) {
+    return this.ordersService.findAll(status);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'ดึงออเดอร์ตาม id' })
+  findOne(@Param('id') id: string) {
+    return this.ordersService.findOne(id);
+  }
+
+  @Get(':id/total')
+  @ApiOperation({ summary: 'คำนวณยอดรวมของออเดอร์' })
+  getTotal(@Param('id') id: string) {
+    return this.ordersService.getTotal(id);
+  }
+
+  @Patch(':id/status')
+  @Roles(Role.ADMIN, Role.KITCHEN)
+  @ApiOperation({ summary: 'เปลี่ยนสถานะออเดอร์ (pending → preparing → served → paid)' })
+  updateStatus(@Param('id') id: string, @Body() dto: UpdateOrderStatusDto) {
+    return this.ordersService.updateStatus(id, dto.status);
+  }
+
+  @Post(':id/items')
+  @Roles(Role.ADMIN, Role.WAITER)
+  @ApiOperation({ summary: 'เพิ่มเมนูเข้าไปในออเดอร์ที่ยังเปิดอยู่' })
+  addItem(@Param('id') id: string, @Body() dto: OrderItemInputDto) {
+    return this.ordersService.addItem(id, dto);
+  }
+
+  @Delete(':id/items/:itemId')
+  @Roles(Role.ADMIN, Role.WAITER)
+  @ApiOperation({ summary: 'ลบรายการเมนูออกจากออเดอร์' })
+  removeItem(@Param('id') id: string, @Param('itemId') itemId: string) {
+    return this.ordersService.removeItem(id, itemId);
+  }
+}

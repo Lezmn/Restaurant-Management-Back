@@ -1,0 +1,169 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CASHIER
+  KITCHEN
+  WAITER
+}
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  SERVED
+  PAID
+  CANCELLED
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  PROMPTPAY
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(WAITER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+
+  @@map("users")
+}
+
+model Category {
+  id        String     @id @default(uuid())
+  name      String     @unique
+  menuItems MenuItem[]
+
+  @@map("categories")
+}
+
+model MenuItem {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  imageUrl    String?
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category   Category @relation(fields: [categoryId], references: [id])
+  categoryId String
+
+  orderItems OrderItem[]
+  options    MenuOption[]
+
+  @@index([categoryId])
+  @@map("menu_items")
+}
+
+model MenuOption {
+  id          String   @id @default(uuid())
+  name        String
+  price       Decimal  @default(0) @db.Decimal(10, 2)
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  menuItem         MenuItem          @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  menuItemId       String
+  orderItemOptions OrderItemOption[]
+
+  @@index([menuItemId])
+  @@map("menu_options")
+}
+
+model RestaurantTable {
+  id     String      @id @default(uuid())
+  number Int         @unique
+  seats  Int         @default(4)
+  status TableStatus @default(AVAILABLE)
+  orders Order[]
+
+  @@map("restaurant_tables")
+}
+
+model Order {
+  id        String      @id @default(uuid())
+  status    OrderStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  table   RestaurantTable @relation(fields: [tableId], references: [id])
+  tableId String
+
+  waiter   User   @relation(fields: [waiterId], references: [id])
+  waiterId String
+
+  items   OrderItem[]
+  payment Payment?
+
+  @@index([tableId, status])
+  @@index([waiterId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  quantity  Int     @default(1)
+  unitPrice Decimal @db.Decimal(10, 2)
+  note      String?
+
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId String
+
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  menuItemId String
+
+  selectedOptions OrderItemOption[]
+
+  @@map("order_items")
+}
+
+model OrderItemOption {
+  id        String   @id @default(uuid())
+  name      String
+  price     Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+
+  orderItem    OrderItem  @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  orderItemId  String
+  menuOption   MenuOption @relation(fields: [menuOptionId], references: [id])
+  menuOptionId String
+
+  @@index([orderItemId])
+  @@index([menuOptionId])
+  @@map("order_item_options")
+}
+
+model Payment {
+  id     String        @id @default(uuid())
+  amount Decimal       @db.Decimal(10, 2)
+  method PaymentMethod
+  paidAt DateTime      @default(now())
+
+  order   Order  @relation(fields: [orderId], references: [id])
+  orderId String @unique
+
+  @@map("payments")
+}
