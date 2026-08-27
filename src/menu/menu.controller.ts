@@ -8,7 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { MenuService } from './menu.service';
@@ -30,6 +30,17 @@ export class MenuController {
 
   @Get()
   @ApiOperation({ summary: 'ดึงรายการเมนูทั้งหมด (filter ตาม category ได้)' })
+  @ApiQuery({
+    name: 'categoryId',
+    required: false,
+    description: 'กรองเมนูตาม category id ถ้าไม่ส่งจะดึงทุกหมวด',
+  })
+  @ApiQuery({
+    name: 'onlyAvailable',
+    required: false,
+    description: 'ส่ง true ถ้าต้องการเฉพาะเมนูที่พร้อมขาย',
+    example: 'true',
+  })
   findAll(
     @Query('categoryId') categoryId?: string,
     @Query('onlyAvailable') onlyAvailable?: string,

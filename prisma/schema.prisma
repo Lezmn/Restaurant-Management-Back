@@ -41,6 +41,18 @@ enum TableSessionStatus {
   EXPIRED
 }
 
+enum ServiceRequestType {
+  CALL_STAFF
+  CHECKOUT
+  OTHER
+}
+
+enum ServiceRequestStatus {
+  PENDING
+  RESOLVED
+  CANCELLED
+}
+
 model User {
   id        String   @id @default(uuid())
   name      String
@@ -104,6 +116,8 @@ model RestaurantTable {
   status TableStatus @default(AVAILABLE)
   orders Order[]
   sessions TableSession[]
+  serviceRequests ServiceRequest[]
+  receipts Receipt[]
 
   @@map("restaurant_tables")
 }
@@ -120,6 +134,9 @@ model TableSession {
   tableId String
 
   orders Order[]
+  serviceRequests ServiceRequest[]
+  payment Payment?
+  receipt Receipt?
 
   @@index([tableId, status])
   @@map("table_sessions")
@@ -138,7 +155,7 @@ model Order {
   tableSessionId String?
 
   items   OrderItem[]
-  payment Payment?
+  serviceRequests ServiceRequest[]
 
   @@index([tableId, status])
   @@index([tableSessionId])
@@ -184,8 +201,74 @@ model Payment {
   method PaymentMethod
   paidAt DateTime      @default(now())
 
-  order   Order  @relation(fields: [orderId], references: [id])
-  orderId String @unique
+  tableSession   TableSession @relation(fields: [tableSessionId], references: [id])
+  tableSessionId String       @unique
+
+  receipt Receipt?
 
   @@map("payments")
+}
+
+model ServiceRequest {
+  id        String               @id @default(uuid())
+  type      ServiceRequestType
+  status    ServiceRequestStatus @default(PENDING)
+  message   String?
+  createdAt DateTime             @default(now())
+  resolvedAt DateTime?
+
+  table   RestaurantTable @relation(fields: [tableId], references: [id])
+  tableId String
+
+  tableSession   TableSession? @relation(fields: [tableSessionId], references: [id])
+  tableSessionId String?
+
+  order   Order? @relation(fields: [orderId], references: [id])
+  orderId String?
+
+  @@index([tableId, status])
+  @@index([tableSessionId, status])
+  @@index([orderId])
+  @@map("service_requests")
+}
+
+model Receipt {
+  id        String   @id @default(uuid())
+  number    String   @unique
+  subtotal  Decimal  @db.Decimal(10, 2)
+  discount  Decimal  @default(0) @db.Decimal(10, 2)
+  total     Decimal  @db.Decimal(10, 2)
+  issuedAt  DateTime @default(now())
+
+  payment   Payment @relation(fields: [paymentId], references: [id])
+  paymentId String  @unique
+
+  table   RestaurantTable @relation(fields: [tableId], references: [id])
+  tableId String
+
+  tableSession   TableSession @relation(fields: [tableSessionId], references: [id])
+  tableSessionId String       @unique
+
+  items ReceiptItem[]
+
+  @@index([tableId])
+  @@index([tableSessionId])
+  @@map("receipts")
+}
+
+model ReceiptItem {
+  id          String  @id @default(uuid())
+  name        String
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(10, 2)
+  optionTotal Decimal @default(0) @db.Decimal(10, 2)
+  lineTotal   Decimal @db.Decimal(10, 2)
+  note        String?
+  orderId     String?
+
+  receipt   Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  receiptId String
+
+  @@index([receiptId])
+  @@map("receipt_items")
 }

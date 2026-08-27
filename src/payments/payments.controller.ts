@@ -12,7 +12,7 @@ export class PaymentsController {
 
   @Post()
   @Roles(Role.ADMIN, Role.CASHIER)
-  @ApiOperation({ summary: 'ชำระเงินสำหรับออเดอร์ที่เสิร์ฟแล้ว' })
+  @ApiOperation({ summary: 'ชำระเงินรวมทั้ง QR session' })
   create(@Body() dto: CreatePaymentDto) {
     return this.paymentsService.create(dto);
   }

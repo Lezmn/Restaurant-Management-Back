@@ -2,8 +2,11 @@ import 'dotenv/config';
 import {
   OrderStatus,
   PaymentMethod,
+  Prisma,
   PrismaClient,
   Role,
+  ServiceRequestStatus,
+  ServiceRequestType,
   TableSessionStatus,
   TableStatus,
 } from '@prisma/client';
@@ -90,6 +93,114 @@ async function upsertTable(number: number, seats = 4) {
     where: { number },
     update: { seats, status: TableStatus.AVAILABLE },
     create: { number, seats, status: TableStatus.AVAILABLE },
+  });
+}
+
+async function upsertServiceRequest(data: {
+  tableId: string;
+  tableSessionId?: string;
+  orderId?: string;
+  type: ServiceRequestType;
+  message?: string;
+  status?: ServiceRequestStatus;
+}) {
+  const existing = await prisma.serviceRequest.findFirst({
+    where: {
+      tableId: data.tableId,
+      tableSessionId: data.tableSessionId,
+      orderId: data.orderId,
+      type: data.type,
+      message: data.message,
+    },
+  });
+
+  if (existing) {
+    return prisma.serviceRequest.update({
+      where: { id: existing.id },
+      data: {
+        status: data.status ?? ServiceRequestStatus.PENDING,
+        resolvedAt:
+          data.status === ServiceRequestStatus.RESOLVED ? new Date() : null,
+      },
+    });
+  }
+
+  return prisma.serviceRequest.create({
+    data: {
+      tableId: data.tableId,
+      tableSessionId: data.tableSessionId,
+      orderId: data.orderId,
+      type: data.type,
+      message: data.message,
+      status: data.status ?? ServiceRequestStatus.PENDING,
+      resolvedAt:
+        data.status === ServiceRequestStatus.RESOLVED ? new Date() : undefined,
+    },
+  });
+}
+
+async function createReceiptForSession(tableSessionId: string) {
+  const existingReceipt = await prisma.receipt.findUnique({
+    where: { tableSessionId },
+  });
+  if (existingReceipt) return existingReceipt;
+
+  const session = await prisma.tableSession.findUnique({
+    where: { id: tableSessionId },
+    include: {
+      table: true,
+      payment: true,
+      orders: {
+        include: {
+          items: {
+            include: {
+              menuItem: true,
+              selectedOptions: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!session?.payment) return null;
+
+  const items = session.orders.flatMap((order) =>
+    order.items.map((item) => {
+      const optionTotal = item.selectedOptions.reduce(
+        (sum, option) => sum.plus(option.price),
+        new Prisma.Decimal(0),
+      );
+      const lineTotal = item.unitPrice.plus(optionTotal).mul(item.quantity);
+
+      return {
+        name: item.menuItem.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        optionTotal,
+        lineTotal,
+        note: item.note,
+        orderId: order.id,
+      };
+    }),
+  );
+
+  const subtotal = items.reduce(
+    (sum, item) => sum.plus(item.lineTotal),
+    new Prisma.Decimal(0),
+  );
+
+  return prisma.receipt.create({
+    data: {
+      number: `RCPT-${Date.now()}`,
+      paymentId: session.payment.id,
+      tableId: session.tableId,
+      tableSessionId: session.id,
+      subtotal,
+      discount: 0,
+      total: session.payment.amount,
+      items: { create: items },
+    },
   });
 }
 
@@ -198,11 +309,31 @@ async function main() {
     data: { status: TableStatus.OCCUPIED },
   });
 
-  const orderCount = await prisma.order.count();
-  if (orderCount === 0) {
-    const demoOrder = await prisma.order.create({
+  const demoPaidSession = await prisma.tableSession.upsert({
+    where: { token: 'demo-table-1-paid-session' },
+    update: {
+      tableId: tables[0].id,
+      status: TableSessionStatus.CLOSED,
+      closedAt: new Date(),
+      expiresAt: null,
+    },
+    create: {
+      tableId: tables[0].id,
+      token: 'demo-table-1-paid-session',
+      status: TableSessionStatus.CLOSED,
+      closedAt: new Date(),
+    },
+  });
+
+  const existingPaidDemoOrder = await prisma.order.findFirst({
+    where: { tableSessionId: demoPaidSession.id },
+  });
+
+  if (!existingPaidDemoOrder) {
+    await prisma.order.create({
       data: {
         tableId: tables[0].id,
+        tableSessionId: demoPaidSession.id,
         status: OrderStatus.PAID,
         items: {
           create: [
@@ -235,15 +366,34 @@ async function main() {
         },
       },
     });
-
-    await prisma.payment.create({
-      data: {
-        orderId: demoOrder.id,
-        amount: 70,
-        method: PaymentMethod.CASH,
-      },
-    });
   }
+
+  await prisma.payment.upsert({
+    where: { tableSessionId: demoPaidSession.id },
+    update: { amount: 70, method: PaymentMethod.CASH },
+    create: {
+      tableSessionId: demoPaidSession.id,
+      amount: 70,
+      method: PaymentMethod.CASH,
+    },
+  });
+
+  await Promise.all([
+    upsertServiceRequest({
+      tableId: tables[1].id,
+      tableSessionId: demoSession.id,
+      type: ServiceRequestType.CALL_STAFF,
+      message: 'ขอน้ำแข็งเพิ่มครับ',
+    }),
+    upsertServiceRequest({
+      tableId: tables[1].id,
+      tableSessionId: demoSession.id,
+      type: ServiceRequestType.CHECKOUT,
+      message: 'ขอคิดเงินโต๊ะ 2',
+    }),
+  ]);
+
+  await createReceiptForSession(demoPaidSession.id);
 
   console.log('Seed completed');
   console.table([
@@ -252,8 +402,9 @@ async function main() {
     { role: Role.KITCHEN, email: 'kitchen@restaurant.local', password: seedPassword },
     { role: Role.CASHIER, email: 'cashier@restaurant.local', password: seedPassword },
   ]);
-  console.log('Created sample categories, menu items, menu options, tables, one active QR session, and one paid order if the database had no orders.');
+  console.log('Created sample categories, menu items, menu options, tables, one active QR session, service requests, and a receipt for a paid order.');
   console.log(`Demo QR session token: ${demoSession.token}`);
+  console.log(`Demo paid session token: ${demoPaidSession.token}`);
 }
 
 main()

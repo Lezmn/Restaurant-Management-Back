@@ -9,55 +9,70 @@ export class PaymentsService {
 
   async create(dto: CreatePaymentDto) {
     return this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({
-        where: { id: dto.orderId },
-        include: { items: { include: { selectedOptions: true } }, payment: true },
+      const session = await tx.tableSession.findUnique({
+        where: { id: dto.tableSessionId },
+        include: {
+          payment: true,
+          orders: {
+            where: { status: { not: OrderStatus.CANCELLED } },
+            include: { items: { include: { selectedOptions: true } } },
+          },
+        },
       });
-      if (!order) throw new NotFoundException(`ไม่พบออเดอร์ id: ${dto.orderId}`);
-      if (order.payment) throw new ConflictException('ออเดอร์นี้ชำระเงินแล้ว');
-      if (order.status !== OrderStatus.SERVED) {
-        throw new BadRequestException('ชำระเงินได้เฉพาะออเดอร์ที่เสิร์ฟแล้ว');
+      if (!session) {
+        throw new NotFoundException(`ไม่พบ QR session id: ${dto.tableSessionId}`);
+      }
+      if (session.payment) {
+        throw new ConflictException('QR session นี้ชำระเงินแล้ว');
+      }
+      if (session.orders.length === 0) {
+        throw new BadRequestException('ยังไม่มีออเดอร์สำหรับชำระเงิน');
       }
 
-      const amount = order.items.reduce(
-        (sum, item) => {
-          const optionAmount = item.selectedOptions.reduce(
-            (optionSum, option) => optionSum.plus(option.price),
-            new Prisma.Decimal(0),
-          );
-          return sum.plus(item.unitPrice.plus(optionAmount).mul(item.quantity));
-        },
+      const notReadyOrder = session.orders.find(
+        (order) => order.status !== OrderStatus.SERVED,
+      );
+      if (notReadyOrder) {
+        throw new BadRequestException(
+          'ชำระเงินได้เมื่อทุกออเดอร์ใน session ถูกเสิร์ฟแล้ว',
+        );
+      }
+
+      const amount = session.orders.reduce(
+        (orderSum, order) =>
+          orderSum.plus(
+            order.items.reduce(
+              (itemSum, item) => {
+                const optionAmount = item.selectedOptions.reduce(
+                  (optionSum, option) => optionSum.plus(option.price),
+                  new Prisma.Decimal(0),
+                );
+                return itemSum.plus(item.unitPrice.plus(optionAmount).mul(item.quantity));
+              },
+              new Prisma.Decimal(0),
+            ),
+          ),
         new Prisma.Decimal(0),
       );
 
       const payment = await tx.payment.create({
-        data: { orderId: order.id, amount, method: dto.method },
-      });
-      await tx.order.update({ where: { id: order.id }, data: { status: OrderStatus.PAID } });
-
-      const remainingOpenOrders = await tx.order.count({
-        where: {
-          tableId: order.tableId,
-          id: { not: order.id },
-          status: {
-            in: [OrderStatus.PENDING, OrderStatus.PREPARING, OrderStatus.SERVED],
-          },
-        },
+        data: { tableSessionId: session.id, amount, method: dto.method },
       });
 
-      if (remainingOpenOrders === 0) {
-        if (order.tableSessionId) {
-          await tx.tableSession.update({
-            where: { id: order.tableSessionId },
-            data: { status: TableSessionStatus.CLOSED, closedAt: new Date() },
-          });
-        }
+      await tx.order.updateMany({
+        where: { tableSessionId: session.id, status: OrderStatus.SERVED },
+        data: { status: OrderStatus.PAID },
+      });
 
-        await tx.restaurantTable.update({
-          where: { id: order.tableId },
-          data: { status: TableStatus.AVAILABLE },
-        });
-      }
+      await tx.tableSession.update({
+        where: { id: session.id },
+        data: { status: TableSessionStatus.CLOSED, closedAt: new Date() },
+      });
+
+      await tx.restaurantTable.update({
+        where: { id: session.tableId },
+        data: { status: TableStatus.AVAILABLE },
+      });
 
       return payment;
     });

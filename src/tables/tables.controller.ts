@@ -8,7 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Role, TableStatus } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { TablesService } from './tables.service';
@@ -29,6 +29,12 @@ export class TablesController {
 
   @Get()
   @ApiOperation({ summary: 'ดึงโต๊ะทั้งหมด (filter ตามสถานะได้ เช่น ?status=AVAILABLE)' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description: 'กรองโต๊ะตามสถานะ ถ้าไม่ส่งจะดึงทุกโต๊ะ',
+    enum: TableStatus,
+  })
   findAll(@Query('status') status?: TableStatus) {
     return this.tablesService.findAll(status);
   }

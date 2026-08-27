@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiTags, ApiQuery } from '@nestjs/swagger';
 import { Role, TableSessionStatus } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CreateTableSessionDto } from './dto/create-table-session.dto';
@@ -19,6 +19,12 @@ export class TableSessionsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.WAITER, Role.CASHIER)
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description: 'Filter by table session status',
+    enum: TableSessionStatus
+  }) 
   @ApiOperation({ summary: 'ดึงรายการ QR sessions ทั้งหมด (filter ตามสถานะได้)' })
   findAll(@Query('status') status?: TableSessionStatus) {
     return this.tableSessionsService.findAll(status);

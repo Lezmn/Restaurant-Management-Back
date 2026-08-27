@@ -18,7 +18,6 @@ const ORDER_INCLUDE = {
   table: true,
   tableSession: true,
   items: { include: { menuItem: true, selectedOptions: { include: { menuOption: true } } } },
-  payment: true,
 } as const;
 
 @Injectable()
