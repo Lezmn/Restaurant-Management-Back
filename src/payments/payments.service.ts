@@ -1,5 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrderStatus, Prisma, TableSessionStatus, TableStatus } from '@prisma/client';
+import {
+  OrderStatus,
+  Prisma,
+  ServiceRequestStatus,
+  TableSessionStatus,
+  TableStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 
@@ -84,6 +90,11 @@ export class PaymentsService {
       await tx.restaurantTable.update({
         where: { id: session.tableId },
         data: { status: TableStatus.AVAILABLE },
+      });
+
+      await tx.serviceRequest.updateMany({
+        where: { tableSessionId: session.id, status: ServiceRequestStatus.PENDING },
+        data: { status: ServiceRequestStatus.RESOLVED, resolvedAt: new Date() },
       });
 
       const receiptNumber = await this.generateReceiptNumber(tx);

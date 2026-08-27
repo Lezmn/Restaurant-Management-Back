@@ -144,6 +144,11 @@ export class TableSessionsService {
         where: { id: session.tableId },
         data: { status: TableStatus.AVAILABLE },
       });
+
+      await tx.serviceRequest.updateMany({
+        where: { tableSessionId: id, status: ServiceRequestStatus.PENDING },
+        data: { status: ServiceRequestStatus.RESOLVED, resolvedAt: new Date() },
+      });
     });
 
     return this.findOne(id);
