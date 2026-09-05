@@ -16,14 +16,14 @@ export class ServiceRequestsController {
   ) {}
 
   @Post()
-  @Roles(Role.ADMIN, Role.WAITER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'สร้างคำขอจากโต๊ะ เช่น เรียกพนักงาน' })
   create(@Body() dto: CreateServiceRequestDto) {
     return this.serviceRequestsService.create(dto);
   }
 
   @Get()
-  @Roles(Role.ADMIN, Role.WAITER, Role.CASHIER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'ดูคำขอจากโต๊ะทั้งหมด (filter ได้)' })
   @ApiQuery({ name: 'status', required: false, enum: ServiceRequestStatus })
   @ApiQuery({ name: 'type', required: false, enum: ServiceRequestType })
@@ -34,14 +34,14 @@ export class ServiceRequestsController {
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.WAITER, Role.CASHIER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'ดูคำขอจากโต๊ะตาม id' })
   findOne(@Param('id') id: string) {
     return this.serviceRequestsService.findOne(id);
   }
 
   @Patch(':id/payment-method')
-  @Roles(Role.ADMIN, Role.WAITER, Role.CASHIER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'แก้ไขวิธีจ่ายเงินของคำขอเช็คบิล (เฉพาะ type=CHECKOUT)' })
   updatePaymentMethod(
     @Param('id') id: string,
@@ -54,14 +54,14 @@ export class ServiceRequestsController {
   }
 
   @Patch(':id/resolve')
-  @Roles(Role.ADMIN, Role.WAITER, Role.CASHIER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'กดว่าจัดการคำขอนี้เสร็จแล้ว' })
   resolve(@Param('id') id: string) {
     return this.serviceRequestsService.resolve(id);
   }
 
   @Patch(':id/cancel')
-  @Roles(Role.ADMIN, Role.WAITER, Role.CASHIER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'ยกเลิกคำขอนี้' })
   cancel(@Param('id') id: string) {
     return this.serviceRequestsService.cancel(id);

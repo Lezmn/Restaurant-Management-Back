@@ -11,6 +11,8 @@ import { TableSessionsModule } from './table-sessions/table-sessions.module';
 import { PublicModule } from './public/public.module';
 import { ServiceRequestsModule } from './service-requests/service-requests.module';
 import { UsersModule } from './users/users.module';
+import { ExpensesModule } from './expenses/expenses.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -25,6 +27,8 @@ import { UsersModule } from './users/users.module';
     PublicModule,
     ServiceRequestsModule,
     UsersModule,
+    ExpensesModule,
+    ReportsModule,
     AuthModule,
   ],
 })

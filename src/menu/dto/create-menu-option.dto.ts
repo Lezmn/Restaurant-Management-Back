@@ -1,11 +1,28 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { MenuOptionGroup } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export class CreateMenuOptionDto {
   @ApiProperty({ example: 'ไข่ดาว' })
   @IsString()
   name: string;
+
+  @ApiPropertyOptional({
+    enum: MenuOptionGroup,
+    default: MenuOptionGroup.EXTRA,
+    description: 'PROTEIN = เนื้อสัตว์, EXTRA = เพิ่มเติมอื่น ๆ (ไม่ส่งมาจะเป็น EXTRA)',
+  })
+  @IsOptional()
+  @IsEnum(MenuOptionGroup)
+  group?: MenuOptionGroup;
 
   @ApiPropertyOptional({ example: 10, default: 0 })
   @IsOptional()

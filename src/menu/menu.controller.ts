@@ -15,6 +15,7 @@ import { MenuService } from './menu.service';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CreateMenuOptionDto } from './dto/create-menu-option.dto';
+import { UpdateMenuOptionDto } from './dto/update-menu-option.dto';
 
 @ApiTags('menu')
 @ApiBearerAuth()
@@ -77,5 +78,25 @@ export class MenuController {
   @ApiOperation({ summary: 'เพิ่มตัวเลือกให้เมนู เช่น หมู หรือ ไข่ดาว' })
   createOption(@Param('id') id: string, @Body() dto: CreateMenuOptionDto) {
     return this.menuService.createOption(id, dto);
+  }
+
+  @Patch(':id/options/:optionId')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'แก้ไขตัวเลือกของเมนู' })
+  updateOption(
+    @Param('id') id: string,
+    @Param('optionId') optionId: string,
+    @Body() dto: UpdateMenuOptionDto,
+  ) {
+    return this.menuService.updateOption(id, optionId, dto);
+  }
+
+  @Delete(':id/options/:optionId')
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary: 'ลบตัวเลือกของเมนู (ลบไม่ได้ถ้าเคยถูกสั่งไปแล้ว ให้ปิดขายแทน)',
+  })
+  removeOption(@Param('id') id: string, @Param('optionId') optionId: string) {
+    return this.menuService.removeOption(id, optionId);
   }
 }

@@ -24,7 +24,7 @@ export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
-  @Roles(Role.ADMIN, Role.WAITER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'สร้างออเดอร์ใหม่ (ผูกกับโต๊ะ + รายการเมนู)' })
   create(@Body() dto: CreateOrderDto) {
     return this.ordersService.create(dto);
@@ -56,14 +56,14 @@ export class OrdersController {
   }
 
   @Post(':id/items')
-  @Roles(Role.ADMIN, Role.WAITER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'เพิ่มเมนูเข้าไปในออเดอร์ที่ยังเปิดอยู่' })
   addItem(@Param('id') id: string, @Body() dto: OrderItemInputDto) {
     return this.ordersService.addItem(id, dto);
   }
 
   @Delete(':id/items/:itemId')
-  @Roles(Role.ADMIN, Role.WAITER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'ลบรายการเมนูออกจากออเดอร์' })
   removeItem(@Param('id') id: string, @Param('itemId') itemId: string) {
     return this.ordersService.removeItem(id, itemId);

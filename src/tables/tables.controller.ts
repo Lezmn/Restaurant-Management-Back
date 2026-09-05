@@ -8,11 +8,12 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { Role, TableStatus } from '@prisma/client';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { TablesService } from './tables.service';
 import { CreateTableDto } from './dto/create-table.dto';
+import { FindTablesQueryDto } from './dto/find-tables-query.dto';
 import { UpdateTableDto } from './dto/update-table.dto';
 
 @ApiTags('tables')
@@ -30,14 +31,8 @@ export class TablesController {
 
   @Get()
   @ApiOperation({ summary: 'ดึงโต๊ะทั้งหมด (filter ตามสถานะได้ เช่น ?status=AVAILABLE)' })
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    description: 'กรองโต๊ะตามสถานะ ถ้าไม่ส่งจะดึงทุกโต๊ะ',
-    enum: TableStatus,
-  })
-  findAll(@Query('status') status?: TableStatus) {
-    return this.tablesService.findAll(status);
+  findAll(@Query() query: FindTablesQueryDto) {
+    return this.tablesService.findAll(query.status);
   }
 
   @Get(':id')

@@ -35,7 +35,7 @@ export class PublicService {
           include: {
             options: {
               where: { isAvailable: true },
-              orderBy: { name: 'asc' },
+              orderBy: [{ group: 'asc' }, { name: 'asc' }],
             },
           },
           orderBy: { name: 'asc' },

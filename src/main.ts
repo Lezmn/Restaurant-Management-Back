@@ -2,9 +2,22 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { DecimalInterceptor } from './common/interceptors/decimal.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // frontend รันคนละ origin (Vite dev server) ต้องเปิด CORS ไม่งั้น browser บล็อก
+  // ใส่หลาย origin ได้โดยคั่นด้วย comma ใน CORS_ORIGIN
+  app.enableCors({
+    origin: (process.env.CORS_ORIGIN ?? 'http://localhost:5173')
+      .split(',')
+      .map((o) => o.trim()),
+    credentials: true,
+  });
+
+  // Prisma ส่ง Decimal เป็น string ตอน serialize — แปลงเป็น number ให้ทุก response
+  app.useGlobalInterceptors(new DecimalInterceptor());
 
   app.useGlobalPipes(
     new ValidationPipe({

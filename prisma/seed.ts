@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import {
+  ExpenseCategory,
+  MenuOptionGroup,
   OrderStatus,
   PaymentMethod,
   Prisma,
@@ -71,7 +73,12 @@ async function upsertMenuItem(data: {
   });
 }
 
-async function upsertMenuOption(menuItemId: string, name: string, price = 0) {
+async function upsertMenuOption(
+  menuItemId: string,
+  name: string,
+  price = 0,
+  group: MenuOptionGroup = MenuOptionGroup.EXTRA,
+) {
   const existing = await prisma.menuOption.findFirst({
     where: { menuItemId, name },
   });
@@ -79,12 +86,12 @@ async function upsertMenuOption(menuItemId: string, name: string, price = 0) {
   if (existing) {
     return prisma.menuOption.update({
       where: { id: existing.id },
-      data: { price, isAvailable: true },
+      data: { price, group, isAvailable: true },
     });
   }
 
   return prisma.menuOption.create({
-    data: { menuItemId, name, price, isAvailable: true },
+    data: { menuItemId, name, price, group, isAvailable: true },
   });
 }
 
@@ -160,7 +167,7 @@ async function upsertDemoOrder(params: {
 }
 
 async function createReceiptForSession(tableSessionId: string) {
-  const existingReceipt = await prisma.receipt.findUnique({
+  const existingReceipt = await prisma.receipt.findFirst({
     where: { tableSessionId },
   });
   if (existingReceipt) return existingReceipt;
@@ -169,7 +176,7 @@ async function createReceiptForSession(tableSessionId: string) {
     where: { id: tableSessionId },
     include: {
       table: true,
-      payment: true,
+      payments: true,
       orders: {
         include: {
           items: {
@@ -183,7 +190,8 @@ async function createReceiptForSession(tableSessionId: string) {
     },
   });
 
-  if (!session?.payment) return null;
+  const payment = session?.payments[0];
+  if (!payment) return null;
 
   const items = session.orders.flatMap((order) =>
     order.items.map((item) => {
@@ -213,23 +221,49 @@ async function createReceiptForSession(tableSessionId: string) {
   return prisma.receipt.create({
     data: {
       number: `RCPT-${Date.now()}`,
-      paymentId: session.payment.id,
+      paymentId: payment.id,
       tableId: session.tableId,
       tableSessionId: session.id,
       subtotal,
       discount: 0,
-      total: session.payment.amount,
+      total: payment.amount,
       items: { create: items },
     },
   });
 }
 
+/** รายจ่ายตัวอย่างของเดือนนี้ ให้หน้า report มีข้อมูลให้ดู */
+async function seedExpenses() {
+  const now = new Date();
+  const daysAgo = (days: number) => {
+    const date = new Date(now);
+    date.setDate(date.getDate() - days);
+    return date;
+  };
+
+  const samples = [
+    { title: 'ค่าวัตถุดิบตลาดสด', amount: 2500, category: ExpenseCategory.INGREDIENTS, spentAt: daysAgo(0) },
+    { title: 'ค่าไฟฟ้า', amount: 3200, category: ExpenseCategory.UTILITIES, spentAt: daysAgo(2) },
+    { title: 'เงินเดือนพนักงาน', amount: 18000, category: ExpenseCategory.SALARY, spentAt: daysAgo(3) },
+    { title: 'ค่าเช่าร้าน', amount: 15000, category: ExpenseCategory.RENT, spentAt: daysAgo(5) },
+    { title: 'ซื้อกระทะใหม่', amount: 1200, category: ExpenseCategory.EQUIPMENT, spentAt: daysAgo(6) },
+  ];
+
+  for (const sample of samples) {
+    const existing = await prisma.expense.findFirst({
+      where: { title: sample.title, category: sample.category },
+    });
+    if (existing) continue;
+    await prisma.expense.create({ data: sample });
+  }
+}
+
 async function main() {
   const [admin] = await Promise.all([
     upsertUser('admin@restaurant.local', 'Admin', Role.ADMIN),
-    upsertUser('waiter@restaurant.local', 'Waiter', Role.WAITER),
+    upsertUser('waiter@restaurant.local', 'Staff 1', Role.STAFF),
     upsertUser('kitchen@restaurant.local', 'Kitchen Staff', Role.KITCHEN),
-    upsertUser('cashier@restaurant.local', 'Cashier', Role.CASHIER),
+    upsertUser('cashier@restaurant.local', 'Staff 2', Role.STAFF),
   ]);
 
   const [riceCategory, noodleCategory, drinkCategory] = await Promise.all([
@@ -276,29 +310,32 @@ async function main() {
     }),
   ]);
 
+  const PROTEIN = MenuOptionGroup.PROTEIN;
+  const EXTRA = MenuOptionGroup.EXTRA;
+
   const [gapraoPork, gapraoEgg] = await Promise.all([
-    upsertMenuOption(gaprao.id, 'หมู', 0),
-    upsertMenuOption(gaprao.id, 'ไก่', 0),
-    upsertMenuOption(gaprao.id, 'หมูกรอบ', 10),
-    upsertMenuOption(gaprao.id, 'กุ้ง', 20),
-    upsertMenuOption(gaprao.id, 'ไข่ดาว', 10),
-    upsertMenuOption(gaprao.id, 'ไข่เจียว', 10),
-    upsertMenuOption(gaprao.id, 'พิเศษ', 10),
+    upsertMenuOption(gaprao.id, 'หมู', 0, PROTEIN),
+    upsertMenuOption(gaprao.id, 'ไก่', 0, PROTEIN),
+    upsertMenuOption(gaprao.id, 'หมูกรอบ', 10, PROTEIN),
+    upsertMenuOption(gaprao.id, 'กุ้ง', 20, PROTEIN),
+    upsertMenuOption(gaprao.id, 'ไข่ดาว', 10, EXTRA),
+    upsertMenuOption(gaprao.id, 'ไข่เจียว', 10, EXTRA),
+    upsertMenuOption(gaprao.id, 'พิเศษ', 10, EXTRA),
   ]);
 
   await Promise.all([
-    upsertMenuOption(omeletRice.id, 'ไข่ 1 ฟอง', 0),
-    upsertMenuOption(omeletRice.id, 'ไข่ 2 ฟอง', 10),
-    upsertMenuOption(omeletRice.id, 'หมูสับ', 10),
-    upsertMenuOption(friedRice.id, 'หมู', 0),
-    upsertMenuOption(friedRice.id, 'ไก่', 0),
-    upsertMenuOption(friedRice.id, 'กุ้ง', 20),
-    upsertMenuOption(friedRice.id, 'ไข่ดาว', 10),
-    upsertMenuOption(friedRice.id, 'พิเศษ', 10),
-    upsertMenuOption(padSeeEw.id, 'หมู', 0),
-    upsertMenuOption(padSeeEw.id, 'ไก่', 0),
-    upsertMenuOption(padSeeEw.id, 'กุ้ง', 20),
-    upsertMenuOption(padSeeEw.id, 'พิเศษ', 10),
+    upsertMenuOption(omeletRice.id, 'ไข่ 1 ฟอง', 0, EXTRA),
+    upsertMenuOption(omeletRice.id, 'ไข่ 2 ฟอง', 10, EXTRA),
+    upsertMenuOption(omeletRice.id, 'หมูสับ', 10, PROTEIN),
+    upsertMenuOption(friedRice.id, 'หมู', 0, PROTEIN),
+    upsertMenuOption(friedRice.id, 'ไก่', 0, PROTEIN),
+    upsertMenuOption(friedRice.id, 'กุ้ง', 20, PROTEIN),
+    upsertMenuOption(friedRice.id, 'ไข่ดาว', 10, EXTRA),
+    upsertMenuOption(friedRice.id, 'พิเศษ', 10, EXTRA),
+    upsertMenuOption(padSeeEw.id, 'หมู', 0, PROTEIN),
+    upsertMenuOption(padSeeEw.id, 'ไก่', 0, PROTEIN),
+    upsertMenuOption(padSeeEw.id, 'กุ้ง', 20, PROTEIN),
+    upsertMenuOption(padSeeEw.id, 'พิเศษ', 10, EXTRA),
   ]);
 
   const tables = await Promise.all([
@@ -388,14 +425,23 @@ async function main() {
     });
   }
 
-  await prisma.payment.upsert({
+  const existingDemoPayment = await prisma.payment.findFirst({
     where: { tableSessionId: demoPaidSession.id },
-    update: { amount: 70, method: PaymentMethod.CASH },
-    create: {
-      tableSessionId: demoPaidSession.id,
-      amount: 70,
-      method: PaymentMethod.CASH,
-    },
+  });
+  const demoPayment =
+    existingDemoPayment ??
+    (await prisma.payment.create({
+      data: {
+        tableSessionId: demoPaidSession.id,
+        amount: 70,
+        method: PaymentMethod.CASH,
+      },
+    }));
+
+  // ผูกออเดอร์ที่จ่ายแล้วเข้ากับบิล เพื่อให้ยกเลิกบิล/แยกบิลทำงานถูกต้อง
+  await prisma.order.updateMany({
+    where: { tableSessionId: demoPaidSession.id, paymentId: null },
+    data: { paymentId: demoPayment.id },
   });
 
   await Promise.all([
@@ -463,12 +509,14 @@ async function main() {
 
   await createReceiptForSession(demoPaidSession.id);
 
+  await seedExpenses();
+
   console.log('Seed completed');
   console.table([
     { role: admin.role, email: admin.email, password: seedPassword },
-    { role: Role.WAITER, email: 'waiter@restaurant.local', password: seedPassword },
+    { role: Role.STAFF, email: 'waiter@restaurant.local', password: seedPassword },
     { role: Role.KITCHEN, email: 'kitchen@restaurant.local', password: seedPassword },
-    { role: Role.CASHIER, email: 'cashier@restaurant.local', password: seedPassword },
+    { role: Role.STAFF, email: 'cashier@restaurant.local', password: seedPassword },
   ]);
   console.log('Created sample categories, menu items, menu options, tables, QR sessions (open with mixed-status orders, open ready-to-pay, and closed/paid), service requests, and a receipt for a paid order.');
   console.log(`Demo QR session token (table 2, PENDING/PREPARING/SERVED orders): ${demoSession.token}`);

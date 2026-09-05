@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CreateMenuOptionDto } from './dto/create-menu-option.dto';
+import { UpdateMenuOptionDto } from './dto/update-menu-option.dto';
 
 @Injectable()
 export class MenuService {
@@ -31,7 +32,11 @@ export class MenuService {
         categoryId: params?.categoryId,
         isAvailable: params?.onlyAvailable ? true : undefined,
       },
-      include: { category: true, options: true },
+      // เรียงเนื้อสัตว์ขึ้นก่อน แล้วค่อยตัวเลือกเพิ่มเติม ตามลำดับใน enum
+      include: {
+        category: true,
+        options: { orderBy: [{ group: 'asc' }, { name: 'asc' }] },
+      },
       orderBy: { name: 'asc' },
     });
   }
@@ -39,7 +44,11 @@ export class MenuService {
   async findOne(id: string) {
     const item = await this.prisma.menuItem.findUnique({
       where: { id },
-      include: { category: true, options: true },
+      // เรียงเนื้อสัตว์ขึ้นก่อน แล้วค่อยตัวเลือกเพิ่มเติม ตามลำดับใน enum
+      include: {
+        category: true,
+        options: { orderBy: [{ group: 'asc' }, { name: 'asc' }] },
+      },
     });
     if (!item) {
       throw new NotFoundException(`ไม่พบเมนู id: ${id}`);
@@ -64,6 +73,49 @@ export class MenuService {
     } catch (e) {
       throw this.mapPrismaError(e);
     }
+  }
+
+  async updateOption(
+    menuItemId: string,
+    optionId: string,
+    dto: UpdateMenuOptionDto,
+  ) {
+    await this.findOptionOrThrow(menuItemId, optionId);
+    return this.prisma.menuOption.update({
+      where: { id: optionId },
+      data: dto,
+    });
+  }
+
+  async removeOption(menuItemId: string, optionId: string) {
+    await this.findOptionOrThrow(menuItemId, optionId);
+    try {
+      return await this.prisma.menuOption.delete({ where: { id: optionId } });
+    } catch (e) {
+      throw this.mapOptionDeleteError(e);
+    }
+  }
+
+  private async findOptionOrThrow(menuItemId: string, optionId: string) {
+    const option = await this.prisma.menuOption.findUnique({
+      where: { id: optionId },
+    });
+    if (!option || option.menuItemId !== menuItemId) {
+      throw new NotFoundException(`ไม่พบตัวเลือก id: ${optionId} ในเมนูนี้`);
+    }
+    return option;
+  }
+
+  private mapOptionDeleteError(e: unknown): Error {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === 'P2003'
+    ) {
+      return new BadRequestException(
+        'ลบไม่ได้: ตัวเลือกนี้ถูกใช้ในออเดอร์ที่มีอยู่แล้ว ให้ปิดขาย (isAvailable: false) แทนการลบ',
+      );
+    }
+    return e as Error;
   }
 
   private mapPrismaError(e: unknown): Error {

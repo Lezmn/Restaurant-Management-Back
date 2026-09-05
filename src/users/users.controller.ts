@@ -9,11 +9,12 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { AuthenticatedUser } from '../auth/jwt.strategy';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CreateUserDto } from './dto/create-user.dto';
+import { FindUsersQueryDto } from './dto/find-users-query.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
 
@@ -32,9 +33,8 @@ export class UsersController {
 
   @Get()
   @ApiOperation({ summary: 'ดึงรายชื่อพนักงานทั้งหมด (filter ตาม role ได้)' })
-  @ApiQuery({ name: 'role', required: false, enum: Role })
-  findAll(@Query('role') role?: Role) {
-    return this.usersService.findAll(role);
+  findAll(@Query() query: FindUsersQueryDto) {
+    return this.usersService.findAll(query.role);
   }
 
   @Get(':id')

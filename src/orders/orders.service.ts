@@ -51,18 +51,28 @@ export class OrdersService {
     // ใช้ transaction: สร้าง order + item ทั้งหมด และอัปเดตสถานะโต๊ะ
     // ต้องสำเร็จพร้อมกันทั้งหมด ถ้าล้มเหลวจุดใดจุดหนึ่งให้ rollback ทั้งหมด
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Claim the table atomically, preventing two open orders for one table.
-      const claimedTable = await tx.restaurantTable.updateMany({
-        where: { id: dto.tableId, status: TableStatus.AVAILABLE },
-        data: { status: TableStatus.OCCUPIED },
+      // โต๊ะที่เปิด QR session ไว้แล้วจะเป็น OCCUPIED อยู่ก่อน — พนักงานต้องสั่งเพิ่ม
+      // ให้โต๊ะนั้นได้ และออเดอร์ต้องผูกกับ session เดิม ไม่งั้นจะไม่เข้าบิลของโต๊ะ
+      const openSession = await tx.tableSession.findFirst({
+        where: { tableId: dto.tableId, status: TableSessionStatus.OPEN },
+        select: { id: true },
       });
-      if (claimedTable.count === 0) {
-        throw new BadRequestException('โต๊ะนี้ไม่พร้อมรับออเดอร์ใหม่');
+
+      if (!openSession) {
+        // Claim the table atomically, preventing two open orders for one table.
+        const claimedTable = await tx.restaurantTable.updateMany({
+          where: { id: dto.tableId, status: TableStatus.AVAILABLE },
+          data: { status: TableStatus.OCCUPIED },
+        });
+        if (claimedTable.count === 0) {
+          throw new BadRequestException('โต๊ะนี้ไม่พร้อมรับออเดอร์ใหม่');
+        }
       }
 
       const order = await tx.order.create({
         data: {
           tableId: dto.tableId,
+          tableSessionId: openSession?.id,
           items: { create: this.buildOrderItems(dto.items, menuItems) },
         },
         include: ORDER_INCLUDE,
