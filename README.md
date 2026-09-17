@@ -27,6 +27,7 @@ restaurant-app/
     ├── payments/           # ชำระเงินต่อ session (ออก receipt อัตโนมัติ)
     ├── service-requests/   # คำขอจากโต๊ะ เช่น เรียกพนักงาน, ขอเช็คบิล
     ├── events/             # WebSocket gateway (socket.io) push event ให้ POS/ครัว/ลูกค้า
+    │                       # prisma/seed.ts = ข้อมูล demo สำหรับ dev · prisma/seed-prod.ts = ติดตั้งร้านจริง
     └── public/             # endpoint ฝั่งลูกค้า (ไม่ต้อง login) ใช้คู่กับ QR session
 ```
 
@@ -85,6 +86,38 @@ npm run start:dev
 ## API Docs
 
 ดูรายการ endpoint ทั้งหมด (path, method, role, request/response) ได้ที่ Swagger: `http://localhost:3000/docs`
+
+## ความปลอดภัย / ตั้งค่าก่อนขึ้น production
+
+สิ่งที่ backend มีอยู่แล้ว:
+
+| | รายละเอียด |
+|---|---|
+| รหัสผ่าน | bcrypt cost 12 |
+| JWT | หมดอายุตาม `JWT_EXPIRES_IN` (default 8h) ตรวจ role ทุก endpoint ด้วย `RolesGuard` |
+| Rate limit | ทั้งแอป `THROTTLE_LIMIT` ครั้ง/นาที/IP (default 100) · `/auth/login` 5 ครั้ง/นาที/IP · เกินตอบ `429` |
+| Security headers | `helmet` (ปิด CSP ให้ Swagger UI) |
+| Swagger | dev เปิดเสมอ · production ปิด เปิดชั่วคราวด้วย `SWAGGER_ENABLED=true` |
+| WebSocket | ต้องมี JWT หรือ QR session token ตอน handshake ไม่งั้นตัดทิ้ง |
+| QR session | token 48 ตัวอักษรสุ่ม หมดอายุ 3 ชม. ปิดโต๊ะแล้วใช้ต่อไม่ได้ |
+| เปลี่ยนรหัสตัวเอง | `PATCH /auth/password` ส่ง `currentPassword` + `newPassword` ทุก role ใช้ได้ |
+
+ค่าลับทั้งหมดอ่านจาก `.env` (ไม่ commit) — `docker-compose.yml` ไม่มีรหัสจริงอยู่ในไฟล์ ถ้าไม่ตั้ง `POSTGRES_PASSWORD` / `JWT_SECRET` compose จะ error ทันที
+
+**เช็คลิสต์ก่อน deploy จริง**
+
+1. `cp .env.example .env` แล้วตั้งค่า:
+   - `JWT_SECRET` — สุ่มใหม่ `openssl rand -base64 48`
+   - `POSTGRES_PASSWORD` — รหัส DB ใหม่ (ถ้าเปลี่ยนหลังสร้าง volume แล้ว ต้องลบ volume หรือ `ALTER USER` เอง)
+   - `NODE_ENV=production`
+   - `CORS_ORIGIN` = โดเมนจริงของ frontend
+   - `TRUST_PROXY=true` ถ้าอยู่หลัง nginx (ไม่งั้น rate limit จะเห็นทุกคนเป็น IP เดียว)
+2. สร้าง ADMIN คนแรก (ไม่ใช้ `prisma:seed` ที่เป็นข้อมูล demo):
+   ```bash
+   ADMIN_EMAIL=owner@ร้าน.com ADMIN_PASSWORD=รหัสจริง TABLE_COUNT=8 npm run prisma:seed:prod
+   ```
+   รันซ้ำได้ ไม่ทับข้อมูลเดิม
+3. เพิ่มพนักงานคนอื่นผ่าน `POST /users` (เปิด `SWAGGER_ENABLED=true` ชั่วคราวถ้ายังไม่มีหน้าจอ)
 
 ## WebSocket (realtime)
 

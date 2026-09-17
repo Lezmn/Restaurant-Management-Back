@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { MenuModule } from './menu/menu.module';
 import { OrdersModule } from './orders/orders.module';
@@ -18,6 +20,17 @@ import { EventsModule } from './events/events.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Rate limit ทั้งแอปต่อ IP กัน bot ยิงถล่ม — /auth/login เข้มกว่านี้อีก (ดู auth.controller)
+    // ปรับได้ผ่าน THROTTLE_LIMIT (ครั้ง/นาที) เช่นตอนรัน load test
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => [
+        {
+          ttl: 60_000,
+          limit: Number(config.get('THROTTLE_LIMIT') ?? 100),
+        },
+      ],
+    }),
     PrismaModule,
     EventsModule,
     CategoriesModule,
@@ -33,5 +46,6 @@ import { EventsModule } from './events/events.module';
     ReportsModule,
     AuthModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

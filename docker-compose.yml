@@ -6,15 +6,15 @@ services:
     container_name: restaurant_postgres_dev
     restart: unless-stopped
     environment:
-      POSTGRES_USER: restaurant
-      POSTGRES_PASSWORD: restaurant_pass
-      POSTGRES_DB: restaurant_db
+      POSTGRES_USER: ${POSTGRES_USER:-restaurant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?ต้องตั้ง POSTGRES_PASSWORD ใน .env}
+      POSTGRES_DB: ${POSTGRES_DB:-restaurant_db}
     ports:
       - "5433:5432"
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U restaurant -d restaurant_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-restaurant} -d ${POSTGRES_DB:-restaurant_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -27,12 +27,18 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    # ค่าลับทั้งหมดอ่านจาก .env (ไม่ commit) — ดูตัวอย่างที่ .env.example
+    # DATABASE_URL ตรงนี้ชี้ไป service "postgres" ใน docker network ไม่ใช่ localhost:5433 แบบใน .env
     environment:
-      DATABASE_URL: "postgresql://restaurant:restaurant_pass@postgres:5432/restaurant_db?schema=public"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-restaurant}:${POSTGRES_PASSWORD:?ต้องตั้ง POSTGRES_PASSWORD ใน .env}@postgres:5432/${POSTGRES_DB:-restaurant_db}?schema=public"
       PORT: 3000
-      JWT_SECRET: "development-only-change-this-to-a-long-random-secret"
-      JWT_EXPIRES_IN: 8h
-      CORS_ORIGIN: "http://localhost:5173"
+      NODE_ENV: ${NODE_ENV:-development}
+      JWT_SECRET: ${JWT_SECRET:?ต้องตั้ง JWT_SECRET ใน .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-100}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
     depends_on:
       postgres:
         condition: service_healthy
