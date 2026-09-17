@@ -8,6 +8,7 @@ import {
   ServiceRequestStatus,
   ServiceRequestType,
 } from '@prisma/client';
+import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { TableSessionsService } from '../table-sessions/table-sessions.service';
 import { CreateServiceRequestDto } from './dto/create-service-request.dto';
@@ -32,6 +33,7 @@ export class ServiceRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tableSessionsService: TableSessionsService,
+    private readonly events: EventsGateway,
   ) {}
 
   async create(dto: CreateServiceRequestDto) {
@@ -47,17 +49,19 @@ export class ServiceRequestsService {
       await this.assertSessionBelongsToTable(dto.tableSessionId, dto.tableId);
     }
 
-    return this.prisma.serviceRequest.create({
+    const request = await this.prisma.serviceRequest.create({
       data: dto,
       include: SERVICE_REQUEST_INCLUDE,
     });
+    this.emitRequestEvent('service-request.created', request);
+    return request;
   }
 
   async createCallStaffFromSessionToken(sessionToken: string) {
     const session =
       await this.tableSessionsService.resolveOpenSessionByToken(sessionToken);
 
-    return this.prisma.serviceRequest.create({
+    const request = await this.prisma.serviceRequest.create({
       data: {
         tableId: session.tableId,
         tableSessionId: session.id,
@@ -65,6 +69,8 @@ export class ServiceRequestsService {
       },
       include: SERVICE_REQUEST_INCLUDE,
     });
+    this.emitRequestEvent('service-request.created', request);
+    return request;
   }
 
   async createCheckoutFromSessionToken(
@@ -82,14 +88,16 @@ export class ServiceRequestsService {
       },
     });
     if (existingPending) {
-      return this.prisma.serviceRequest.update({
+      const updated = await this.prisma.serviceRequest.update({
         where: { id: existingPending.id },
         data: { paymentMethod },
         include: SERVICE_REQUEST_INCLUDE,
       });
+      this.emitRequestEvent('service-request.updated', updated);
+      return updated;
     }
 
-    return this.prisma.serviceRequest.create({
+    const request = await this.prisma.serviceRequest.create({
       data: {
         tableId: session.tableId,
         tableSessionId: session.id,
@@ -98,6 +106,8 @@ export class ServiceRequestsService {
       },
       include: SERVICE_REQUEST_INCLUDE,
     });
+    this.emitRequestEvent('service-request.created', request);
+    return request;
   }
 
   findAll(query: FindServiceRequestsQueryDto) {
@@ -126,7 +136,7 @@ export class ServiceRequestsService {
 
   async resolve(id: string) {
     await this.findOne(id);
-    return this.prisma.serviceRequest.update({
+    const updated = await this.prisma.serviceRequest.update({
       where: { id },
       data: {
         status: ServiceRequestStatus.RESOLVED,
@@ -134,6 +144,8 @@ export class ServiceRequestsService {
       },
       include: SERVICE_REQUEST_INCLUDE,
     });
+    this.emitRequestEvent('service-request.updated', updated);
+    return updated;
   }
 
   async updatePaymentMethod(id: string, paymentMethod: PaymentMethod) {
@@ -143,22 +155,48 @@ export class ServiceRequestsService {
         'แก้ไขวิธีจ่ายเงินได้เฉพาะคำขอประเภทเช็คบิลเท่านั้น',
       );
     }
-    return this.prisma.serviceRequest.update({
+    const updated = await this.prisma.serviceRequest.update({
       where: { id },
       data: { paymentMethod },
       include: SERVICE_REQUEST_INCLUDE,
     });
+    this.emitRequestEvent('service-request.updated', updated);
+    return updated;
   }
 
   async cancel(id: string) {
     await this.findOne(id);
-    return this.prisma.serviceRequest.update({
+    const updated = await this.prisma.serviceRequest.update({
       where: { id },
       data: {
         status: ServiceRequestStatus.CANCELLED,
         resolvedAt: new Date(),
       },
       include: SERVICE_REQUEST_INCLUDE,
+    });
+    this.emitRequestEvent('service-request.updated', updated);
+    return updated;
+  }
+
+  /** แจ้ง POS ว่ามีคำขอใหม่/เปลี่ยนสถานะ และแจ้งลูกค้าโต๊ะนั้นด้วย (เช่น พนักงานรับเรื่องแล้ว) */
+  private emitRequestEvent(
+    event: 'service-request.created' | 'service-request.updated',
+    request: {
+      id: string;
+      type: ServiceRequestType;
+      status: ServiceRequestStatus;
+      paymentMethod: PaymentMethod | null;
+      tableId: string;
+      tableSessionId: string | null;
+    },
+  ) {
+    this.events.emitToStaffAndSession(request.tableSessionId, event, {
+      id: request.id,
+      type: request.type,
+      status: request.status,
+      paymentMethod: request.paymentMethod,
+      tableId: request.tableId,
+      tableSessionId: request.tableSessionId,
     });
   }
 

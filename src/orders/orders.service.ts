@@ -10,6 +10,7 @@ import {
   Prisma,
   TableSessionStatus,
 } from '@prisma/client';
+import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { FindOrdersQueryDto } from './dto/find-orders-query.dto';
@@ -32,7 +33,10 @@ const ORDER_INCLUDE = {
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: EventsGateway,
+  ) {}
 
   async create(dto: CreateOrderDto) {
     const table = await this.prisma.restaurantTable.findUnique({
@@ -50,7 +54,7 @@ export class OrdersService {
 
     // ใช้ transaction: สร้าง order + item ทั้งหมด และอัปเดตสถานะโต๊ะ
     // ต้องสำเร็จพร้อมกันทั้งหมด ถ้าล้มเหลวจุดใดจุดหนึ่งให้ rollback ทั้งหมด
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const order = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // โต๊ะที่เปิด QR session ไว้แล้วจะเป็น OCCUPIED อยู่ก่อน — พนักงานต้องสั่งเพิ่ม
       // ให้โต๊ะนั้นได้ และออเดอร์ต้องผูกกับ session เดิม ไม่งั้นจะไม่เข้าบิลของโต๊ะ
       const openSession = await tx.tableSession.findFirst({
@@ -80,6 +84,9 @@ export class OrdersService {
 
       return order;
     });
+
+    this.emitOrderEvent('order.created', order);
+    return order;
   }
 
   async createFromTableSession(sessionToken: string, items: OrderItemInputDto[]) {
@@ -107,7 +114,7 @@ export class OrdersService {
     });
     this.assertAllMenuItemsExistAndAvailable(items, menuItems);
 
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const order = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.restaurantTable.update({
         where: { id: session.tableId },
         data: { status: TableStatus.OCCUPIED },
@@ -122,6 +129,9 @@ export class OrdersService {
         include: ORDER_INCLUDE,
       });
     });
+
+    this.emitOrderEvent('order.created', order);
+    return order;
   }
 
   findAll(query: FindOrdersQueryDto) {
@@ -177,7 +187,9 @@ export class OrdersService {
       },
     });
 
-    return this.findOne(orderId);
+    const updated = await this.findOne(orderId);
+    this.emitOrderEvent('order.updated', updated);
+    return updated;
   }
 
   async removeItem(orderId: string, orderItemId: string) {
@@ -190,29 +202,70 @@ export class OrdersService {
     }
 
     await this.prisma.orderItem.delete({ where: { id: orderItemId } });
-    return this.findOne(orderId);
+    const updated = await this.findOne(orderId);
+    this.emitOrderEvent('order.updated', updated);
+    return updated;
   }
 
   async updateStatus(id: string, status: OrderStatus) {
     const order = await this.findOne(id);
     this.assertValidTransition(order.status, status);
 
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const updated = await tx.order.update({
+    const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const result = await tx.order.update({
         where: { id },
         data: { status },
         include: ORDER_INCLUDE,
       });
 
-      // โต๊ะว่างอีกครั้งเมื่อออเดอร์ถูกยกเลิก; การจ่ายเงินใช้ PaymentsService.
+      // การจ่ายเงินใช้ PaymentsService; ตรงนี้ดูแลแค่กรณียกเลิก
       if (status === OrderStatus.CANCELLED) {
-        await tx.restaurantTable.update({
-          where: { id: order.tableId },
-          data: { status: TableStatus.AVAILABLE },
-        });
+        await this.releaseTableIfIdle(tx, order.tableId);
       }
 
-      return updated;
+      return result;
+    });
+
+    this.emitOrderEvent('order.updated', updated);
+    return updated;
+  }
+
+  /** แจ้งครัว/POS และลูกค้าโต๊ะนั้นว่าออเดอร์เปลี่ยน — ส่งแค่ id/สถานะ ให้ client refetch เอง */
+  private emitOrderEvent(
+    event: 'order.created' | 'order.updated',
+    order: { id: string; status: OrderStatus; tableId: string; tableSessionId: string | null },
+  ) {
+    this.events.emitToStaffAndSession(order.tableSessionId, event, {
+      id: order.id,
+      status: order.status,
+      tableId: order.tableId,
+      tableSessionId: order.tableSessionId,
+    });
+  }
+
+  /**
+   * คืนโต๊ะให้ว่างหลังยกเลิกออเดอร์ — เฉพาะเมื่อโต๊ะไม่มีอะไรค้างจริง ๆ
+   * ถ้ายังมี QR session เปิดอยู่ ลูกค้ายังนั่งอยู่ (สั่งเพิ่มได้) ห้ามปล่อยโต๊ะ
+   * ถ้าเป็นออเดอร์ walk-in ต้องไม่เหลือออเดอร์อื่นที่ยังไม่จบบนโต๊ะนี้
+   */
+  private async releaseTableIfIdle(tx: Prisma.TransactionClient, tableId: string) {
+    const openSession = await tx.tableSession.findFirst({
+      where: { tableId, status: TableSessionStatus.OPEN },
+      select: { id: true },
+    });
+    if (openSession) return;
+
+    const activeOrderCount = await tx.order.count({
+      where: {
+        tableId,
+        status: { notIn: [OrderStatus.PAID, OrderStatus.CANCELLED] },
+      },
+    });
+    if (activeOrderCount > 0) return;
+
+    await tx.restaurantTable.update({
+      where: { id: tableId },
+      data: { status: TableStatus.AVAILABLE },
     });
   }
 

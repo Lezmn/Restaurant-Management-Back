@@ -11,6 +11,7 @@ import {
   TableSessionStatus,
   TableStatus,
 } from '@prisma/client';
+import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { VoidPaymentDto } from './dto/void-payment.dto';
@@ -35,14 +36,17 @@ type PayableOrder = Prisma.OrderGetPayload<{
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: EventsGateway,
+  ) {}
 
   async create(dto: CreatePaymentDto) {
     if (!dto.tableSessionId && !dto.orderIds?.length) {
       throw new BadRequestException('ต้องส่ง tableSessionId หรือ orderIds อย่างน้อยหนึ่งอย่าง');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const orders = dto.orderIds?.length
         ? await this.resolveOrdersByIds(tx, dto.orderIds)
         : await this.resolveUnpaidSessionOrders(tx, dto.tableSessionId!);
@@ -94,12 +98,21 @@ export class PaymentsService {
         receipt,
         paidOrderIds: orders.map((order) => order.id),
         closedSessionIds,
+        affectedSessionIds,
       };
     });
+
+    // รวมบิลข้ามโต๊ะ = หลาย session; แจ้งลูกค้าทุกโต๊ะที่เกี่ยวข้อง
+    const { affectedSessionIds, ...payload } = result;
+    this.events.emitToStaff('payment.created', payload);
+    for (const sessionId of affectedSessionIds) {
+      this.events.emitToSession(sessionId, 'payment.created', payload);
+    }
+    return payload;
   }
 
   async voidPayment(id: string, dto: VoidPaymentDto) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const payment = await tx.payment.findUnique({
         where: { id },
         include: { orders: { select: { id: true, tableSessionId: true } } },
@@ -139,6 +152,12 @@ export class PaymentsService {
 
       return { ...voided, reopenedSessionIds: affectedSessionIds };
     });
+
+    this.events.emitToStaff('payment.voided', result);
+    for (const sessionId of result.reopenedSessionIds) {
+      this.events.emitToSession(sessionId, 'payment.voided', result);
+    }
+    return result;
   }
 
   findAll() {

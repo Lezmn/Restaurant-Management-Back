@@ -29,6 +29,7 @@ import { JwtStrategy } from './jwt.strategy';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [AuthService],
+  // export JwtModule ให้ EventsGateway ตรวจ token ตอน WebSocket handshake ได้
+  exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

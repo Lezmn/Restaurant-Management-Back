@@ -13,6 +13,7 @@ import {
   TableStatus,
 } from '@prisma/client';
 import { randomBytes } from 'crypto';
+import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTableSessionDto } from './dto/create-table-session.dto';
 
@@ -20,7 +21,10 @@ const DEFAULT_SESSION_TTL_MS = 3 * 60 * 60 * 1000;
 
 @Injectable()
 export class TableSessionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: EventsGateway,
+  ) {}
 
   async create(dto: CreateTableSessionDto) {
     const expiresAt = dto.expiresAt
@@ -30,7 +34,7 @@ export class TableSessionsService {
       throw new BadRequestException('expiresAt ต้องเป็นเวลาในอนาคต');
     }
 
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const session = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const table = await tx.restaurantTable.findUnique({
         where: { id: dto.tableId },
       });
@@ -41,13 +45,37 @@ export class TableSessionsService {
       const activeSession = await tx.tableSession.findFirst({
         where: { tableId: dto.tableId, status: TableSessionStatus.OPEN },
       });
-      if (activeSession) {
-        throw new ConflictException('โต๊ะนี้มี QR session ที่เปิดอยู่แล้ว');
-      }
 
-      if (table.status !== TableStatus.AVAILABLE) {
-        throw new ConflictException('เปิด QR session ได้เฉพาะโต๊ะที่ว่าง');
+      if (activeSession) {
+        const isExpired =
+          !!activeSession.expiresAt && activeSession.expiresAt < new Date();
+        if (!isExpired) {
+          throw new ConflictException('โต๊ะนี้มี QR session ที่เปิดอยู่แล้ว');
+        }
+
+        // session เก่าหมดอายุแล้วแต่ยังไม่มีใครปิด — เก็บกวาดให้ก่อนเปิดใบใหม่
+        // แต่ถ้ายังมีออเดอร์ค้างจ่าย ต้องเคลียร์เงินก่อน ไม่งั้นบิลจะหาย
+        const unpaidCount = await tx.order.count({
+          where: {
+            tableSessionId: activeSession.id,
+            status: { not: OrderStatus.CANCELLED },
+            paymentId: null,
+          },
+        });
+        if (unpaidCount > 0) {
+          throw new ConflictException(
+            'QR session เดิมของโต๊ะนี้หมดอายุแล้วแต่ยังมีออเดอร์ค้างชำระ ต้องเก็บเงินหรือยกเลิกออเดอร์ก่อน',
+          );
+        }
+
+        await tx.tableSession.update({
+          where: { id: activeSession.id },
+          data: { status: TableSessionStatus.EXPIRED },
+        });
       }
+      // ตั้งใจไม่เช็ค table.status ตรงนี้: "มี session เปิดอยู่ไหม" คือความจริงเดียว
+      // ถ้าโต๊ะค้างเป็น OCCUPIED ทั้งที่ไม่มี session เปิด แปลว่าสถานะค้างจากรอบก่อน
+      // ปล่อยให้เปิดใบใหม่ได้เลย ไม่งั้นโต๊ะจะติดค้างถาวรจนต้องไปแก้ DB มือ
 
       const session = await tx.tableSession.create({
         data: {
@@ -65,6 +93,13 @@ export class TableSessionsService {
 
       return session;
     });
+
+    this.events.emitToStaff('table-session.created', {
+      id: session.id,
+      status: session.status,
+      tableId: session.tableId,
+    });
+    return session;
   }
 
   async findAll(status?: TableSessionStatus) {
@@ -151,6 +186,12 @@ export class TableSessionsService {
       });
     });
 
+    // ลูกค้าโต๊ะนั้นควรเห็นว่าโต๊ะปิดแล้ว (หน้า QR จะขึ้นขอบคุณ/หมดอายุ)
+    this.events.emitToStaffAndSession(id, 'table-session.closed', {
+      id,
+      status: TableSessionStatus.CLOSED,
+      tableId: session.tableId,
+    });
     return this.findOne(id);
   }
 
@@ -171,9 +212,21 @@ export class TableSessionsService {
       throw new BadRequestException('QR session นี้ปิดแล้ว');
     }
     if (session.expiresAt && session.expiresAt < new Date()) {
-      await this.prisma.tableSession.update({
-        where: { id: session.id },
-        data: { status: TableSessionStatus.EXPIRED },
+      // คืนโต๊ะให้ว่างด้วย ไม่งั้นโต๊ะจะค้างเป็น OCCUPIED ตลอดไป เปิด QR ใหม่ไม่ได้
+      await this.prisma.$transaction([
+        this.prisma.tableSession.update({
+          where: { id: session.id },
+          data: { status: TableSessionStatus.EXPIRED },
+        }),
+        this.prisma.restaurantTable.update({
+          where: { id: session.tableId },
+          data: { status: TableStatus.AVAILABLE },
+        }),
+      ]);
+      this.events.emitToStaffAndSession(session.id, 'table-session.closed', {
+        id: session.id,
+        status: TableSessionStatus.EXPIRED,
+        tableId: session.tableId,
       });
       throw new BadRequestException('QR session นี้หมดอายุแล้ว');
     }
@@ -223,8 +276,12 @@ export class TableSessionsService {
       include: { items: { include: { selectedOptions: true } } };
     }>[],
   ) {
+    // ยอดค้างจ่ายจริง: ตัดออเดอร์ที่ยกเลิก และที่จ่ายไปแล้ว (แยกบิลจ่ายบางส่วน)
     return orders
-      .filter((order) => order.status !== OrderStatus.CANCELLED)
+      .filter(
+        (order) =>
+          order.status !== OrderStatus.CANCELLED && order.paymentId === null,
+      )
       .reduce(
         (orderSum, order) =>
           orderSum.plus(

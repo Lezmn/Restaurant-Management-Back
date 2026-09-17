@@ -13,11 +13,13 @@ import { ServiceRequestsModule } from './service-requests/service-requests.modul
 import { UsersModule } from './users/users.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { ReportsModule } from './reports/reports.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    EventsModule,
     CategoriesModule,
     MenuModule,
     TablesModule,
