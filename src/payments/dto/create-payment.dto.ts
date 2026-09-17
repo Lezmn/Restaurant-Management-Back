@@ -1,6 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentMethod } from '@prisma/client';
-import { ArrayNotEmpty, IsArray, IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 export class CreatePaymentDto {
   @ApiPropertyOptional({
@@ -29,4 +38,13 @@ export class CreatePaymentDto {
   @ApiProperty({ enum: PaymentMethod, example: PaymentMethod.CASH })
   @IsEnum(PaymentMethod)
   method: PaymentMethod;
+
+  @ApiPropertyOptional({
+    example: 'ลูกค้าขอใบกำกับภาษี',
+    description: 'หมายเหตุตอนรับเงิน — เก็บลง payment และพิมพ์ท้ายใบเสร็จ',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
 }

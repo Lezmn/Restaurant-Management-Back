@@ -56,11 +56,15 @@ export class PaymentsService {
       const primarySessionId = orders[0].tableSessionId!;
       const primaryTableId = orders[0].tableId;
 
+      // ช่องว่างล้วนถือว่าไม่มีหมายเหตุ
+      const note = dto.note?.trim() || null;
+
       const payment = await tx.payment.create({
         data: {
           tableSessionId: primarySessionId,
           amount,
           method: dto.method,
+          note,
         },
       });
 
@@ -74,6 +78,7 @@ export class PaymentsService {
           number: await this.generateReceiptNumber(tx),
           subtotal: amount,
           total: amount,
+          note,
           paymentId: payment.id,
           tableId: primaryTableId,
           tableSessionId: primarySessionId,

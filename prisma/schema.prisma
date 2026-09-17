@@ -230,6 +230,9 @@ model Payment {
   voidedAt   DateTime?
   voidReason String?
 
+  // หมายเหตุที่พนักงานพิมพ์ตอนรับเงิน (สำเนาอยู่ที่ Receipt.note ด้วย)
+  note String?
+
   tableSession   TableSession @relation(fields: [tableSessionId], references: [id])
   tableSessionId String
 
@@ -269,6 +272,8 @@ model Receipt {
   discount  Decimal  @default(0) @db.Decimal(10, 2)
   total     Decimal  @db.Decimal(10, 2)
   issuedAt  DateTime @default(now())
+  // หมายเหตุพิมพ์ท้ายใบเสร็จ — คัดลอกจาก Payment.note ตอนออกใบเสร็จ
+  note      String?
 
   payment   Payment @relation(fields: [paymentId], references: [id])
   paymentId String  @unique
