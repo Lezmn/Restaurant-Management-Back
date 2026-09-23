@@ -70,6 +70,14 @@ async function upsertMenuItem(data: {
   });
 }
 
+async function upsertIngredient(name: string) {
+  return prisma.ingredient.upsert({
+    where: { name },
+    update: {},
+    create: { name },
+  });
+}
+
 async function upsertMenuOption(
   menuItemId: string,
   name: string,
@@ -80,15 +88,20 @@ async function upsertMenuOption(
     where: { menuItemId, name },
   });
 
+  // ตัวเลือกที่ชื่อตรงกับวัตถุดิบ (หมู/ไก่/กุ้ง/ไข่ดาว) ผูกให้อัตโนมัติ
+  // ของหมดทีเดียวหายทุกเมนู ไม่ต้องไล่ปิดเอง
+  const ingredient = await prisma.ingredient.findUnique({ where: { name } });
+  const ingredientId = ingredient?.id ?? null;
+
   if (existing) {
     return prisma.menuOption.update({
       where: { id: existing.id },
-      data: { price, group, isAvailable: true },
+      data: { price, group, isAvailable: true, ingredientId },
     });
   }
 
   return prisma.menuOption.create({
-    data: { menuItemId, name, price, group, isAvailable: true },
+    data: { menuItemId, name, price, group, isAvailable: true, ingredientId },
   });
 }
 
@@ -261,6 +274,11 @@ async function main() {
     upsertUser('staff@restaurant.local', 'Staff', Role.STAFF),
     upsertUser('kitchen@restaurant.local', 'Kitchen Staff', Role.KITCHEN),
   ]);
+
+  // ต้องมาก่อนตัวเลือกเมนู เพราะ upsertMenuOption จะไปหาวัตถุดิบชื่อเดียวกันมาผูกให้
+  await Promise.all(
+    ['หมู', 'ไก่', 'หมูกรอบ', 'กุ้ง', 'ไข่ดาว', 'ไข่เจียว'].map(upsertIngredient),
+  );
 
   const [riceCategory, noodleCategory, drinkCategory] = await Promise.all([
     upsertCategory('อาหารจานเดียว'),

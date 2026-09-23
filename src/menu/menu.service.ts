@@ -35,7 +35,11 @@ export class MenuService {
       // เรียงเนื้อสัตว์ขึ้นก่อน แล้วค่อยตัวเลือกเพิ่มเติม ตามลำดับใน enum
       include: {
         category: true,
-        options: { orderBy: [{ group: 'asc' }, { name: 'asc' }] },
+        // ส่งวัตถุดิบมาด้วย หน้าจัดการจะได้บอกได้ว่าตัวเลือกนี้ผูกกับอะไรและของหมดหรือยัง
+        options: {
+          include: { ingredient: true },
+          orderBy: [{ group: 'asc' }, { name: 'asc' }],
+        },
       },
       orderBy: { name: 'asc' },
     });
@@ -47,7 +51,11 @@ export class MenuService {
       // เรียงเนื้อสัตว์ขึ้นก่อน แล้วค่อยตัวเลือกเพิ่มเติม ตามลำดับใน enum
       include: {
         category: true,
-        options: { orderBy: [{ group: 'asc' }, { name: 'asc' }] },
+        // ส่งวัตถุดิบมาด้วย หน้าจัดการจะได้บอกได้ว่าตัวเลือกนี้ผูกกับอะไรและของหมดหรือยัง
+        options: {
+          include: { ingredient: true },
+          orderBy: [{ group: 'asc' }, { name: 'asc' }],
+        },
       },
     });
     if (!item) {
