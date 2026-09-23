@@ -34,7 +34,11 @@ export class PublicService {
           where: { isAvailable: true },
           include: {
             options: {
-              where: { isAvailable: true },
+              // ตัวเลือกที่ผูกวัตถุดิบไว้ ต้องมีวัตถุดิบพร้อมด้วยถึงจะโชว์ให้ลูกค้าสั่ง
+              where: {
+                isAvailable: true,
+                OR: [{ ingredientId: null }, { ingredient: { isAvailable: true } }],
+              },
               orderBy: [{ group: 'asc' }, { name: 'asc' }],
             },
           },

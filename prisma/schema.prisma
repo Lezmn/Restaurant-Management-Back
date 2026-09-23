@@ -109,6 +109,20 @@ model MenuItem {
   @@map("menu_items")
 }
 
+/// วัตถุดิบของร้าน (หมู ไก่ ไข่ ...) — ผูกกับตัวเลือกเมนูได้หลายอัน
+/// ของหมดก็ปิดที่นี่ทีเดียว ตัวเลือกที่ผูกไว้จะหมดตามทุกเมนู ไม่ต้องไล่ปิดทีละเมนู
+model Ingredient {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  menuOptions MenuOption[]
+
+  @@map("ingredients")
+}
+
 model MenuOption {
   id          String          @id @default(uuid())
   name        String
@@ -123,8 +137,13 @@ model MenuOption {
   menuItemId       String
   orderItemOptions OrderItemOption[]
 
+  // ผูกกับวัตถุดิบไว้ ถ้าวัตถุดิบหมด ตัวเลือกนี้ก็สั่งไม่ได้ (null = ไม่ผูกกับอะไร)
+  ingredient   Ingredient? @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
+  ingredientId String?
+
   @@index([menuItemId])
   @@index([menuItemId, group])
+  @@index([ingredientId])
   @@map("menu_options")
 }
 

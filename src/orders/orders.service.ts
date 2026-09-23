@@ -31,6 +31,11 @@ const ORDER_INCLUDE = {
   items: { include: { menuItem: true, selectedOptions: { include: { menuOption: true } } } },
 } as const;
 
+/** ตัวเลือกเมนูพร้อมวัตถุดิบ — ต้องรู้ว่าวัตถุดิบหมดหรือยังก่อนรับออเดอร์ */
+const MENU_ITEM_WITH_OPTIONS = {
+  options: { include: { ingredient: true } },
+} as const;
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -48,7 +53,7 @@ export class OrdersService {
 
     const menuItems = await this.prisma.menuItem.findMany({
       where: { id: { in: dto.items.map((i) => i.menuItemId) } },
-      include: { options: true },
+      include: MENU_ITEM_WITH_OPTIONS,
     });
     this.assertAllMenuItemsExistAndAvailable(dto.items, menuItems);
 
@@ -110,7 +115,7 @@ export class OrdersService {
 
     const menuItems = await this.prisma.menuItem.findMany({
       where: { id: { in: items.map((i) => i.menuItemId) } },
-      include: { options: true },
+      include: MENU_ITEM_WITH_OPTIONS,
     });
     this.assertAllMenuItemsExistAndAvailable(items, menuItems);
 
@@ -170,7 +175,7 @@ export class OrdersService {
 
     const menuItem = await this.prisma.menuItem.findUnique({
       where: { id: dto.menuItemId },
-      include: { options: true },
+      include: MENU_ITEM_WITH_OPTIONS,
     });
     if (!menuItem || !menuItem.isAvailable) {
       throw new BadRequestException('เมนูนี้ไม่พร้อมขายหรือไม่มีอยู่จริง');
@@ -311,7 +316,7 @@ export class OrdersService {
   private resolveSelectedOptions(
     requested: OrderItemInputDto,
     menuItem: Prisma.MenuItemGetPayload<{
-      include: { options: true };
+      include: typeof MENU_ITEM_WITH_OPTIONS;
     }>,
   ) {
     const selectedIds = requested.optionIds ?? [];
@@ -319,6 +324,12 @@ export class OrdersService {
       const option = menuItem.options.find((candidate) => candidate.id === id);
       if (!option || !option.isAvailable) {
         throw new BadRequestException(`ตัวเลือก id: ${id} ไม่ถูกต้องหรือไม่พร้อมขาย`);
+      }
+      // วัตถุดิบหมด = สั่งไม่ได้ ถึงตัวเลือกจะยังเปิดอยู่ก็ตาม
+      if (option.ingredient && !option.ingredient.isAvailable) {
+        throw new BadRequestException(
+          `"${option.name}" หมดชั่วคราว (วัตถุดิบ: ${option.ingredient.name})`,
+        );
       }
       return option;
     });
@@ -332,7 +343,9 @@ export class OrdersService {
 
   private buildOrderItems(
     items: OrderItemInputDto[],
-    menuItems: Prisma.MenuItemGetPayload<{ include: { options: true } }>[],
+    menuItems: Prisma.MenuItemGetPayload<{
+      include: typeof MENU_ITEM_WITH_OPTIONS;
+    }>[],
   ) {
     return items.map((item) => {
       const menuItem = menuItems.find(

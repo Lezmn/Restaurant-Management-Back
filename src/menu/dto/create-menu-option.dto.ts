@@ -7,6 +7,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
 } from 'class-validator';
 
@@ -35,4 +36,12 @@ export class CreateMenuOptionDto {
   @IsOptional()
   @IsBoolean()
   isAvailable?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'ผูกกับวัตถุดิบ — วัตถุดิบหมดแล้วตัวเลือกนี้จะสั่งไม่ได้ทุกเมนู (null = ไม่ผูก)',
+  })
+  @IsOptional()
+  @IsUUID()
+  ingredientId?: string | null;
 }

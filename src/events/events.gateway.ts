@@ -28,7 +28,9 @@ export type ServerEvent =
   | 'payment.created'
   | 'payment.voided'
   | 'table-session.created'
-  | 'table-session.closed';
+  | 'table-session.closed'
+  /** เมนู/วัตถุดิบเปลี่ยน — ทุกจอต้องดึงเมนูใหม่ (เช่น ปิดวัตถุดิบเพราะของหมด) */
+  | 'menu.updated';
 
 type StaffPayload = { sub: string };
 
@@ -83,6 +85,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /** ส่งให้พนักงานทุกคน */
   emitToStaff(event: ServerEvent, payload: unknown) {
     this.server?.to(STAFF_ROOM).emit(event, decimalToNumber(payload));
+  }
+
+  /** ส่งให้ทุกคนที่ต่ออยู่ ทั้งพนักงานและลูกค้าทุกโต๊ะ — ใช้กับเรื่องที่กระทบทั้งร้าน เช่น เมนูเปลี่ยน */
+  emitToEveryone(event: ServerEvent, payload: unknown) {
+    this.server?.emit(event, decimalToNumber(payload));
   }
 
   /** ส่งให้ลูกค้าที่นั่งอยู่ใน QR session นั้น (ถ้าไม่มี session ก็ไม่ต้องส่ง) */
