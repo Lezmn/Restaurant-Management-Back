@@ -51,7 +51,9 @@ export class PaymentsService {
         ? await this.resolveOrdersByIds(tx, dto.orderIds)
         : await this.resolveUnpaidSessionOrders(tx, dto.tableSessionId!);
 
-      const amount = this.calculateOrdersTotal(orders);
+      const subtotal = this.calculateOrdersTotal(orders);
+      // แคชเชียร์ลดราคาได้ (ลูกค้าต่อรอง/ของมีตำหนิ) ส่วนต่างเก็บเป็นส่วนลดในใบเสร็จ
+      const amount = this.resolveChargedAmount(subtotal, dto.amount);
       // บิลนี้ผูกกับ session ของออเดอร์ใบแรก (กรณีรวมบิลข้ามโต๊ะจะมีหลาย session)
       const primarySessionId = orders[0].tableSessionId!;
       const primaryTableId = orders[0].tableId;
@@ -76,7 +78,8 @@ export class PaymentsService {
       const receipt = await tx.receipt.create({
         data: {
           number: await this.generateReceiptNumber(tx),
-          subtotal: amount,
+          subtotal,
+          discount: subtotal.minus(amount),
           total: amount,
           note,
           paymentId: payment.id,
@@ -136,6 +139,13 @@ export class PaymentsService {
           voidedAt: new Date(),
           voidReason: dto.reason,
         },
+      });
+
+      // ออเดอร์พวกนี้เสิร์ฟถึงมือลูกค้าไปแล้ว (ถึงได้เก็บเงิน) ยกเลิกบิลคือเรื่องของแคชเชียร์
+      // ไม่ใช่ครัว — ปิดธงไว้ก่อนคืนสถานะ ไม่งั้นจะไปโผล่บอร์ดครัวเหมือนมีของต้องทำใหม่
+      await tx.order.updateMany({
+        where: { paymentId: id, clearedAt: null },
+        data: { clearedAt: new Date() },
       });
 
       // คืนออเดอร์กลับไปสถานะเสิร์ฟแล้ว เพื่อให้เก็บเงินใหม่ได้
@@ -310,6 +320,19 @@ export class PaymentsService {
       where: { id: session.tableId },
       data: { status: TableStatus.OCCUPIED },
     });
+  }
+
+  /** ยอดที่เก็บจริง — ไม่ส่งมา = เต็มบิล; เก็บเกินยอดบิลไม่ได้ (เงินที่เกินคือเงินทอน ไม่ใช่รายได้) */
+  private resolveChargedAmount(subtotal: Prisma.Decimal, requested?: number) {
+    if (requested === undefined) return subtotal;
+
+    const charged = new Prisma.Decimal(requested);
+    if (charged.greaterThan(subtotal)) {
+      throw new BadRequestException(
+        `ยอดที่เก็บจริง (${charged.toFixed(2)}) มากกว่ายอดบิล (${subtotal.toFixed(2)}) ไม่ได้`,
+      );
+    }
+    return charged;
   }
 
   private calculateOrdersTotal(orders: PayableOrder[]) {

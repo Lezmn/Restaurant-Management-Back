@@ -93,7 +93,6 @@ model Category {
 model MenuItem {
   id          String   @id @default(uuid())
   name        String
-  description String?
   price       Decimal  @db.Decimal(10, 2)
   imageUrl    String?
   isAvailable Boolean  @default(true)
@@ -167,6 +166,10 @@ model Order {
   status    OrderStatus @default(PENDING)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+
+  // ครัวกด "ทำเสร็จเรียบร้อย" = ยกของให้ลูกค้าแล้ว ให้หายจากบอร์ดถาวร
+  // เก็บใน DB ไม่ใช่ state ในจอ ไม่งั้นรีเฟรชแล้วกลับมาใหม่ และจอครัวหลายเครื่องไม่ตรงกัน
+  clearedAt DateTime?
 
   table   RestaurantTable @relation(fields: [tableId], references: [id])
   tableId String

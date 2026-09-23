@@ -38,7 +38,6 @@ async function upsertCategory(name: string) {
 async function upsertMenuItem(data: {
   categoryId: string;
   name: string;
-  description?: string;
   price: number;
   imageUrl?: string;
 }) {
@@ -53,7 +52,6 @@ async function upsertMenuItem(data: {
     return prisma.menuItem.update({
       where: { id: existing.id },
       data: {
-        description: data.description,
         price: data.price,
         imageUrl: data.imageUrl,
         isAvailable: true,
@@ -65,7 +63,6 @@ async function upsertMenuItem(data: {
     data: {
       categoryId: data.categoryId,
       name: data.name,
-      description: data.description,
       price: data.price,
       imageUrl: data.imageUrl,
       isAvailable: true,
@@ -261,50 +258,45 @@ async function seedExpenses() {
 async function main() {
   const [admin] = await Promise.all([
     upsertUser('admin@restaurant.local', 'Admin', Role.ADMIN),
-    upsertUser('waiter@restaurant.local', 'Staff 1', Role.STAFF),
+    upsertUser('staff@restaurant.local', 'Staff', Role.STAFF),
     upsertUser('kitchen@restaurant.local', 'Kitchen Staff', Role.KITCHEN),
-    upsertUser('cashier@restaurant.local', 'Staff 2', Role.STAFF),
   ]);
 
   const [riceCategory, noodleCategory, drinkCategory] = await Promise.all([
     upsertCategory('อาหารจานเดียว'),
     upsertCategory('เมนูเส้น'),
     upsertCategory('เครื่องดื่ม'),
+    upsertCategory('ของหวาน'),
   ]);
 
   const [gaprao, omeletRice, friedRice, padSeeEw, water] = await Promise.all([
     upsertMenuItem({
       categoryId: riceCategory.id,
       name: 'ข้าวผัดกะเพรา',
-      description: 'ข้าวราดผัดกะเพรา เลือกเนื้อสัตว์และท็อปปิ้งได้',
       price: 50,
       imageUrl: 'https://images.unsplash.com/photo-1627308595229-7830a5c91f9f',
     }),
     upsertMenuItem({
       categoryId: riceCategory.id,
       name: 'ข้าวไข่เจียว',
-      description: 'ไข่เจียวร้อนๆ เสิร์ฟพร้อมข้าวสวย',
       price: 40,
       imageUrl: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38',
     }),
     upsertMenuItem({
       categoryId: riceCategory.id,
       name: 'ข้าวผัด',
-      description: 'ข้าวผัดหอมกระทะ เลือกเนื้อสัตว์ได้',
       price: 50,
       imageUrl: 'https://images.unsplash.com/photo-1603133872878-684f208fb84b',
     }),
     upsertMenuItem({
       categoryId: noodleCategory.id,
       name: 'ผัดซีอิ๊ว',
-      description: 'เส้นใหญ่ผัดซีอิ๊ว เลือกเนื้อสัตว์ได้',
       price: 50,
       imageUrl: 'https://images.unsplash.com/photo-1555126634-323283e090fa',
     }),
     upsertMenuItem({
       categoryId: drinkCategory.id,
       name: 'น้ำเปล่า',
-      description: 'น้ำดื่มขวด',
       price: 10,
       imageUrl: 'https://images.unsplash.com/photo-1523362628745-0c100150b504',
     }),
@@ -514,9 +506,8 @@ async function main() {
   console.log('Seed completed');
   console.table([
     { role: admin.role, email: admin.email, password: seedPassword },
-    { role: Role.STAFF, email: 'waiter@restaurant.local', password: seedPassword },
+    { role: Role.STAFF, email: 'staff@restaurant.local', password: seedPassword },
     { role: Role.KITCHEN, email: 'kitchen@restaurant.local', password: seedPassword },
-    { role: Role.STAFF, email: 'cashier@restaurant.local', password: seedPassword },
   ]);
   console.log('Created sample categories, menu items, menu options, tables, QR sessions (open with mixed-status orders, open ready-to-pay, and closed/paid), service requests, and a receipt for a paid order.');
   console.log(`Demo QR session token (table 2, PENDING/PREPARING/SERVED orders): ${demoSession.token}`);

@@ -15,11 +15,6 @@ export class CreateMenuItemDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiPropertyOptional({ example: 'ผัดไทยเส้นจันท์ กุ้งตัวใหญ่' })
-  @IsOptional()
-  @IsString()
-  description?: string;
-
   @ApiProperty({ example: 89 })
   @IsNumber()
   @Min(0)

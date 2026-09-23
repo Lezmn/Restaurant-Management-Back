@@ -55,6 +55,15 @@ export class OrdersController {
     return this.ordersService.updateStatus(id, dto.status);
   }
 
+  @Patch(':id/clear')
+  @Roles(Role.ADMIN, Role.KITCHEN)
+  @ApiOperation({
+    summary: 'เคลียร์ออเดอร์ที่เสิร์ฟแล้วออกจากบอร์ดครัว (ยังอยู่ในบิล)',
+  })
+  markCleared(@Param('id') id: string) {
+    return this.ordersService.markCleared(id);
+  }
+
   @Post(':id/items')
   @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'เพิ่มเมนูเข้าไปในออเดอร์ที่ยังเปิดอยู่' })

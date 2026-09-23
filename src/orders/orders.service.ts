@@ -269,6 +269,29 @@ export class OrdersService {
     });
   }
 
+  /**
+   * ครัวกด "ทำเสร็จเรียบร้อย" = ยกให้ลูกค้าแล้ว เอาออกจากบอร์ดถาวร
+   * แยกจาก status เพราะออเดอร์ยังต้องอยู่ในบิลรอเก็บเงิน (ยังเป็น SERVED)
+   */
+  async markCleared(id: string) {
+    const order = await this.findOne(id);
+    if (order.status !== OrderStatus.SERVED) {
+      throw new BadRequestException(
+        'เคลียร์ออกจากบอร์ดได้เฉพาะออเดอร์ที่เสิร์ฟแล้ว',
+      );
+    }
+    if (order.clearedAt) return order;
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: { clearedAt: new Date() },
+      include: ORDER_INCLUDE,
+    });
+
+    this.emitOrderEvent('order.updated', updated);
+    return updated;
+  }
+
   private assertAllMenuItemsExistAndAvailable(
     requested: OrderItemInputDto[],
     found: { id: string; isAvailable: boolean }[],
