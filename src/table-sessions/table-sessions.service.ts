@@ -12,7 +12,7 @@ import {
   TableSessionStatus,
   TableStatus,
 } from '@prisma/client';
-import { randomBytes } from 'crypto';
+import { randomBytes } from 'node:crypto';
 import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTableSessionDto } from './dto/create-table-session.dto';

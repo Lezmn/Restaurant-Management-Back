@@ -263,10 +263,10 @@ export class PaymentsService {
       throw new BadRequestException('ยังไม่มีออเดอร์ที่ต้องชำระใน session นี้');
     }
 
-    const notReadyOrder = orders.find(
+    const hasNotReadyOrder = orders.some(
       (order) => order.status !== OrderStatus.SERVED,
     );
-    if (notReadyOrder) {
+    if (hasNotReadyOrder) {
       throw new BadRequestException(
         'ชำระเงินได้เมื่อทุกออเดอร์ใน session ถูกเสิร์ฟแล้ว',
       );

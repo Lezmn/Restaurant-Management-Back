@@ -71,7 +71,11 @@ export class MenuService {
 
   async remove(id: string) {
     await this.findOne(id);
-    return this.prisma.menuItem.delete({ where: { id } });
+    try {
+      return await this.prisma.menuItem.delete({ where: { id } });
+    } catch (e) {
+      throw this.mapItemDeleteError(e);
+    }
   }
 
   async createOption(menuItemId: string, dto: CreateMenuOptionDto) {
@@ -108,10 +112,23 @@ export class MenuService {
     const option = await this.prisma.menuOption.findUnique({
       where: { id: optionId },
     });
-    if (!option || option.menuItemId !== menuItemId) {
+    if (option?.menuItemId !== menuItemId) {
       throw new NotFoundException(`ไม่พบตัวเลือก id: ${optionId} ในเมนูนี้`);
     }
     return option;
+  }
+
+  /** เมนูที่เคยถูกสั่งจะมี order_items อ้างอยู่ ลบไม่ได้ — บอกทางออกแทนที่จะปล่อยเป็น 500 */
+  private mapItemDeleteError(e: unknown): Error {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === 'P2003'
+    ) {
+      return new BadRequestException(
+        'ลบไม่ได้: เมนูนี้ถูกสั่งไปแล้วในออเดอร์ที่มีอยู่ ให้ปิด "พร้อมจำหน่าย" แทนการลบ',
+      );
+    }
+    return e as Error;
   }
 
   private mapOptionDeleteError(e: unknown): Error {

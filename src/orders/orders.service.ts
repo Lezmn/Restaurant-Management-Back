@@ -177,7 +177,7 @@ export class OrdersService {
       where: { id: dto.menuItemId },
       include: MENU_ITEM_WITH_OPTIONS,
     });
-    if (!menuItem || !menuItem.isAvailable) {
+    if (!menuItem?.isAvailable) {
       throw new BadRequestException('เมนูนี้ไม่พร้อมขายหรือไม่มีอยู่จริง');
     }
 
@@ -201,8 +201,8 @@ export class OrdersService {
     const order = await this.findOne(orderId);
     this.assertOrderIsEditable(order.status);
 
-    const item = order.items.find((i: { id: string }) => i.id === orderItemId);
-    if (!item) {
+    const hasItem = order.items.some((i: { id: string }) => i.id === orderItemId);
+    if (!hasItem) {
       throw new NotFoundException(`ไม่พบรายการ id: ${orderItemId} ในออเดอร์นี้`);
     }
 
@@ -322,7 +322,7 @@ export class OrdersService {
     const selectedIds = requested.optionIds ?? [];
     const selected = selectedIds.map((id) => {
       const option = menuItem.options.find((candidate) => candidate.id === id);
-      if (!option || !option.isAvailable) {
+      if (!option?.isAvailable) {
         throw new BadRequestException(`ตัวเลือก id: ${id} ไม่ถูกต้องหรือไม่พร้อมขาย`);
       }
       // วัตถุดิบหมด = สั่งไม่ได้ ถึงตัวเลือกจะยังเปิดอยู่ก็ตาม
