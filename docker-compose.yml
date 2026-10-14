@@ -9,8 +9,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-restaurant}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-restaurant_db}
+    # bind แค่ 127.0.0.1 — เครื่องอื่นในวง WiFi ร้าน (รวมถึงลูกค้า) ต่อ DB ตรง ๆ ไม่ได้
+    # app ใน compose ต่อผ่าน docker network อยู่แล้ว ไม่ได้ใช้พอร์ตนี้
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
     healthcheck:
@@ -32,11 +34,15 @@ services:
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-restaurant}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-restaurant_db}?schema=public"
       PORT: 3000
+      # ร้านอยู่ไทย — "วันนี้" ของ Dashboard, ขอบเดือนในรายงาน และเลขรันใบเสร็จ อิงเวลาเครื่อง
+      # ไม่ตั้งไว้ container จะเป็น UTC ทำให้วันใหม่เริ่มตอน 07:00 เวลาไทย
+      TZ: ${TZ:-Asia/Bangkok}
       NODE_ENV: ${NODE_ENV:-development}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
-      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-100}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-300}
+      THROTTLE_IP_LIMIT: ${THROTTLE_IP_LIMIT:-1000}
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
       TRUST_PROXY: ${TRUST_PROXY:-false}
     depends_on:
@@ -46,18 +52,6 @@ services:
       - ./src:/app/src
       - ./prisma:/app/prisma
     command: sh -c "npx prisma migrate deploy && npm run start:dev"
-
-  adminer:
-    image: adminer:5-standalone
-    container_name: restaurant_adminer
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    environment:
-      ADMINER_DEFAULT_SERVER: postgres
-    depends_on:
-      postgres:
-        condition: service_healthy
 
 volumes:
   postgres_data_dev:

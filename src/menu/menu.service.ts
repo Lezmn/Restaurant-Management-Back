@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
@@ -8,7 +9,10 @@ import { UpdateMenuOptionDto } from './dto/update-menu-option.dto';
 
 @Injectable()
 export class MenuService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: EventsGateway,
+  ) {}
 
   async create(dto: CreateMenuItemDto) {
     const category = await this.prisma.category.findUnique({
@@ -20,7 +24,9 @@ export class MenuService {
     }
 
     try {
-      return await this.prisma.menuItem.create({ data: dto });
+      return this.notifyMenuChanged(
+        await this.prisma.menuItem.create({ data: dto }),
+      );
     } catch (e) {
       throw this.mapPrismaError(e);
     }
@@ -66,13 +72,21 @@ export class MenuService {
 
   async update(id: string, dto: UpdateMenuItemDto) {
     await this.findOne(id); // throws 404 if not found
-    return this.prisma.menuItem.update({ where: { id }, data: dto });
+    try {
+      return this.notifyMenuChanged(
+        await this.prisma.menuItem.update({ where: { id }, data: dto }),
+      );
+    } catch (e) {
+      throw this.mapPrismaError(e);
+    }
   }
 
   async remove(id: string) {
     await this.findOne(id);
     try {
-      return await this.prisma.menuItem.delete({ where: { id } });
+      return this.notifyMenuChanged(
+        await this.prisma.menuItem.delete({ where: { id } }),
+      );
     } catch (e) {
       throw this.mapItemDeleteError(e);
     }
@@ -81,7 +95,9 @@ export class MenuService {
   async createOption(menuItemId: string, dto: CreateMenuOptionDto) {
     await this.findOne(menuItemId);
     try {
-      return await this.prisma.menuOption.create({ data: { menuItemId, ...dto } });
+      return this.notifyMenuChanged(
+        await this.prisma.menuOption.create({ data: { menuItemId, ...dto } }),
+      );
     } catch (e) {
       throw this.mapPrismaError(e);
     }
@@ -93,19 +109,36 @@ export class MenuService {
     dto: UpdateMenuOptionDto,
   ) {
     await this.findOptionOrThrow(menuItemId, optionId);
-    return this.prisma.menuOption.update({
-      where: { id: optionId },
-      data: dto,
-    });
+    try {
+      return this.notifyMenuChanged(
+        await this.prisma.menuOption.update({
+          where: { id: optionId },
+          data: dto,
+        }),
+      );
+    } catch (e) {
+      throw this.mapPrismaError(e);
+    }
   }
 
   async removeOption(menuItemId: string, optionId: string) {
     await this.findOptionOrThrow(menuItemId, optionId);
     try {
-      return await this.prisma.menuOption.delete({ where: { id: optionId } });
+      return this.notifyMenuChanged(
+        await this.prisma.menuOption.delete({ where: { id: optionId } }),
+      );
     } catch (e) {
       throw this.mapOptionDeleteError(e);
     }
+  }
+
+  /**
+   * เมนู/ตัวเลือกเปลี่ยน (ปิดขาย แก้ราคา ลบ) — ให้ทุกจอดึงเมนูใหม่
+   * ไม่งั้นลูกค้าที่เปิดหน้าเมนูค้างไว้ยังกดสั่งของที่ปิดไปแล้วได้ แล้วไปเจอ error ตอนส่งออเดอร์
+   */
+  private notifyMenuChanged<T>(result: T): T {
+    this.events.emitToEveryone('menu.updated', { at: new Date().toISOString() });
+    return result;
   }
 
   private async findOptionOrThrow(menuItemId: string, optionId: string) {
@@ -148,7 +181,9 @@ export class MenuService {
       e instanceof Prisma.PrismaClientKnownRequestError &&
       e.code === 'P2003'
     ) {
-      return new BadRequestException('ข้อมูลที่อ้างอิงไม่ถูกต้อง เช่น categoryId หรือ menuItemId');
+      return new BadRequestException(
+        'ข้อมูลที่อ้างอิงไม่ถูกต้อง เช่น categoryId หรือ ingredientId ไม่มีอยู่จริง',
+      );
     }
 
     return e as Error;

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -12,6 +13,8 @@ import {
 } from '@prisma/client';
 import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
+import { closeSessionIfSettled } from '../table-sessions/session-settlement';
+import { TableSessionsService } from '../table-sessions/table-sessions.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { FindOrdersQueryDto } from './dto/find-orders-query.dto';
 import { OrderItemInputDto } from './dto/order-item-input.dto';
@@ -41,6 +44,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventsGateway,
+    private readonly tableSessions: TableSessionsService,
   ) {}
 
   async create(dto: CreateOrderDto) {
@@ -95,23 +99,8 @@ export class OrdersService {
   }
 
   async createFromTableSession(sessionToken: string, items: OrderItemInputDto[]) {
-    const session = await this.prisma.tableSession.findUnique({
-      where: { token: sessionToken },
-      include: { table: true },
-    });
-    if (!session) {
-      throw new NotFoundException('ไม่พบ QR session นี้');
-    }
-    if (session.status !== TableSessionStatus.OPEN) {
-      throw new BadRequestException('QR session นี้ปิดแล้ว');
-    }
-    if (session.expiresAt && session.expiresAt < new Date()) {
-      await this.prisma.tableSession.update({
-        where: { id: session.id },
-        data: { status: TableSessionStatus.EXPIRED },
-      });
-      throw new BadRequestException('QR session นี้หมดอายุแล้ว');
-    }
+    // ใช้กติกาหมดอายุชุดเดียวกับหน้าลูกค้า (ยังมียอดค้างจ่าย = ยังไม่หมดอายุ)
+    const session = await this.tableSessions.resolveOpenSessionByToken(sessionToken);
 
     const menuItems = await this.prisma.menuItem.findMany({
       where: { id: { in: items.map((i) => i.menuItemId) } },
@@ -216,22 +205,42 @@ export class OrdersService {
     const order = await this.findOne(id);
     this.assertValidTransition(order.status, status);
 
+    let sessionClosed = false;
     const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const result = await tx.order.update({
-        where: { id },
+      // เปลี่ยนเฉพาะถ้าสถานะยังเป็นค่าที่เพิ่งอ่านมา — กันกรณีแคชเชียร์เก็บเงินไปพอดี
+      // แล้วครัวกดยกเลิกทับ ได้ออเดอร์ CANCELLED ที่มี payment ผูกอยู่
+      const changed = await tx.order.updateMany({
+        where: { id, status: order.status, paymentId: null },
         data: { status },
-        include: ORDER_INCLUDE,
       });
+      if (changed.count === 0) {
+        throw new ConflictException(
+          'ออเดอร์นี้เพิ่งถูกเปลี่ยนสถานะหรือเก็บเงินไปแล้ว กรุณารีเฟรชแล้วลองใหม่',
+        );
+      }
 
       // การจ่ายเงินใช้ PaymentsService; ตรงนี้ดูแลแค่กรณียกเลิก
       if (status === OrderStatus.CANCELLED) {
+        if (order.tableSessionId) {
+          // ยกเลิกใบสุดท้ายที่ค้างจ่าย หลังจากแยกบิลจ่ายใบอื่นไปแล้ว = โต๊ะนี้จบแล้ว
+          sessionClosed = await closeSessionIfSettled(tx, order.tableSessionId, {
+            requirePaidOrder: true,
+          });
+        }
         await this.releaseTableIfIdle(tx, order.tableId);
       }
 
-      return result;
+      return tx.order.findUniqueOrThrow({ where: { id }, include: ORDER_INCLUDE });
     });
 
     this.emitOrderEvent('order.updated', updated);
+    if (sessionClosed) {
+      this.events.emitToStaffAndSession(updated.tableSessionId, 'table-session.closed', {
+        id: updated.tableSessionId,
+        status: TableSessionStatus.CLOSED,
+        tableId: updated.tableId,
+      });
+    }
     return updated;
   }
 

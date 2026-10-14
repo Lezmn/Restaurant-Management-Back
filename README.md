@@ -7,7 +7,7 @@
 
 ```
 restaurant-app/
-├── docker-compose.yml      # postgres + app (dev mode) + adminer
+├── docker-compose.yml      # postgres + app (dev mode)
 ├── Dockerfile
 ├── .env.example
 ├── prisma/
@@ -77,9 +77,8 @@ docker compose exec app npm run prisma:seed
 |---|---|
 | API | `http://localhost:3000` |
 | Swagger | `http://localhost:3000/docs` |
-| Adminer (ดู DB) | `http://localhost:8080` — server `postgres`, user/password/db ตาม `.env` |
 
-Postgres เปิด port `5433` ที่เครื่อง host (ไม่ชนกับ Postgres ที่ลงไว้ในเครื่อง)
+Postgres เปิด port `5433` เฉพาะ `127.0.0.1` ของเครื่อง host (ไม่ชนกับ Postgres ที่ลงไว้ในเครื่อง และเครื่องอื่นในวง LAN ต่อตรงไม่ได้) — ดู DB ด้วย client ในเครื่อง เช่น DBeaver/psql ที่ `localhost:5433`
 
 > **Docker บน Windows:** แก้ไฟล์ใน `src/` แล้ว `nest --watch` ใน container มักไม่เห็นการเปลี่ยนแปลง ให้รัน `docker compose restart app`
 
@@ -154,7 +153,7 @@ npm run start:dev
 **สิ่งที่ยังขาด**
 
 - `Dockerfile` ยังเป็น dev: ติดตั้ง devDependencies และ `CMD` รัน `npm run start:dev` — ต้องมี stage ที่ `npm run build` แล้วรัน `npm run start:prod` (`node dist/main`)
-- `docker-compose.yml` mount `./src` / `./prisma` เข้า container, เปิด Adminer และเปิด port Postgres ออก host — ต้องมี compose แยกสำหรับ prod ที่ไม่มีสิ่งเหล่านี้
+- `docker-compose.yml` mount `./src` / `./prisma` เข้า container, และเปิด port Postgres ที่ 127.0.0.1 — ต้องมี compose แยกสำหรับ prod ที่ไม่มีสิ่งเหล่านี้
 - ยังไม่มี reverse proxy / HTTPS
 
 **เช็คลิสต์ `.env` เมื่อพร้อม deploy**

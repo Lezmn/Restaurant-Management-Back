@@ -1,9 +1,13 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 export class VoidPaymentDto {
-  @ApiPropertyOptional({ example: 'กดจ่ายผิดโต๊ะ' })
-  @IsOptional()
+  // บังคับใส่ทุกครั้ง — ยกเลิกบิลแล้วเงินหายจากยอดขาย เจ้าของต้องไล่ดูย้อนหลังได้ว่าเพราะอะไร
+  @ApiProperty({ example: 'กดจ่ายผิดโต๊ะ' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
-  reason?: string;
+  @IsNotEmpty({ message: 'ต้องระบุเหตุผลที่ยกเลิกบิล' })
+  @MaxLength(200)
+  reason: string;
 }

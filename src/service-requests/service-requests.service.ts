@@ -61,6 +61,17 @@ export class ServiceRequestsService {
     const session =
       await this.tableSessionsService.resolveOpenSessionByToken(sessionToken);
 
+    // กดซ้ำระหว่างรอพนักงาน = คำขอเดิม ไม่สร้างใหม่ (กันกดรัวจนป๊อปอัปท่วมจอ POS)
+    const existingPending = await this.prisma.serviceRequest.findFirst({
+      where: {
+        tableSessionId: session.id,
+        type: ServiceRequestType.CALL_STAFF,
+        status: ServiceRequestStatus.PENDING,
+      },
+      include: SERVICE_REQUEST_INCLUDE,
+    });
+    if (existingPending) return existingPending;
+
     const request = await this.prisma.serviceRequest.create({
       data: {
         tableId: session.tableId,

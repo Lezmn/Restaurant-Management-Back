@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
+import { closeSessionIfSettled } from '../table-sessions/session-settlement';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { VoidPaymentDto } from './dto/void-payment.dto';
 
@@ -29,6 +30,9 @@ const TABLE_SESSION_SELECT = {
 const PAYABLE_ORDER_INCLUDE = {
   items: { include: { menuItem: true, selectedOptions: true } },
 } as const;
+
+/** key ของ pg_advisory_xact_lock สำหรับออกเลขใบเสร็จ (เลขอะไรก็ได้ที่ไม่ชนกับ lock อื่นในระบบ) */
+const RECEIPT_NUMBER_LOCK = 7_420_001;
 
 type PayableOrder = Prisma.OrderGetPayload<{
   include: typeof PAYABLE_ORDER_INCLUDE;
@@ -70,10 +74,21 @@ export class PaymentsService {
         },
       });
 
-      await tx.order.updateMany({
-        where: { id: { in: orders.map((order) => order.id) } },
+      // อัปเดตแบบมีเงื่อนไข กันกดรับเงินพร้อมกันสองเครื่อง: ใบที่สองจะรอ row lock
+      // จนใบแรก commit แล้วเห็นว่าออเดอร์ถูกจ่ายไปแล้ว → นับได้ไม่ครบ → rollback ทั้งใบ
+      const claimed = await tx.order.updateMany({
+        where: {
+          id: { in: orders.map((order) => order.id) },
+          status: OrderStatus.SERVED,
+          paymentId: null,
+        },
         data: { status: OrderStatus.PAID, paymentId: payment.id },
       });
+      if (claimed.count !== orders.length) {
+        throw new ConflictException(
+          'บิลนี้เพิ่งถูกเก็บเงินหรือแก้ไขไปจากอีกเครื่อง กรุณารีเฟรชแล้วลองใหม่',
+        );
+      }
 
       const receipt = await tx.receipt.create({
         data: {
@@ -96,7 +111,7 @@ export class PaymentsService {
       ];
       const closedSessionIds: string[] = [];
       for (const sessionId of affectedSessionIds) {
-        if (await this.closeSessionIfFullyPaid(tx, sessionId)) {
+        if (await closeSessionIfSettled(tx, sessionId)) {
           closedSessionIds.push(sessionId);
         }
       }
@@ -114,7 +129,11 @@ export class PaymentsService {
     const { affectedSessionIds, ...payload } = result;
     this.events.emitToStaff('payment.created', payload);
     for (const sessionId of affectedSessionIds) {
-      this.events.emitToSession(sessionId, 'payment.created', payload);
+      this.events.emitToSession(
+        sessionId,
+        'payment.created',
+        this.toCustomerPaymentEvent(payload.id, sessionId, payload.closedSessionIds),
+      );
     }
     return payload;
   }
@@ -131,6 +150,17 @@ export class PaymentsService {
       if (payment.status === PaymentStatus.VOIDED) {
         throw new ConflictException('บิลนี้ถูกยกเลิกไปแล้ว');
       }
+
+      const affectedSessionIds = [
+        ...new Set(
+          payment.orders
+            .map((order) => order.tableSessionId)
+            .filter((sessionId): sessionId is string => Boolean(sessionId)),
+        ),
+      ];
+      // ต้องเปิด session เดิมกลับมาเก็บเงินใหม่ — ถ้าโต๊ะรับลูกค้ากลุ่มใหม่ไปแล้ว
+      // จะกลายเป็นสอง session เปิดซ้อนกัน (QR เก่าสั่งอาหารได้อีก / ออเดอร์ใหม่ไปผิดบิล)
+      await this.assertSessionsCanReopen(tx, affectedSessionIds);
 
       const voided = await tx.payment.update({
         where: { id },
@@ -154,13 +184,6 @@ export class PaymentsService {
         data: { status: OrderStatus.SERVED, paymentId: null },
       });
 
-      const affectedSessionIds = [
-        ...new Set(
-          payment.orders
-            .map((order) => order.tableSessionId)
-            .filter((sessionId): sessionId is string => Boolean(sessionId)),
-        ),
-      ];
       for (const sessionId of affectedSessionIds) {
         await this.reopenSession(tx, sessionId);
       }
@@ -170,9 +193,30 @@ export class PaymentsService {
 
     this.events.emitToStaff('payment.voided', result);
     for (const sessionId of result.reopenedSessionIds) {
-      this.events.emitToSession(sessionId, 'payment.voided', result);
+      this.events.emitToSession(
+        sessionId,
+        'payment.voided',
+        this.toCustomerPaymentEvent(result.id, sessionId, []),
+      );
     }
     return result;
+  }
+
+  /**
+   * payload ที่ส่งเข้าห้องลูกค้า — หน้าลูกค้าใช้แค่เป็นสัญญาณให้ดึงข้อมูลใหม่
+   * ห้ามส่ง payment/ใบเสร็จทั้งก้อน: รวมบิลข้ามโต๊ะจะทำให้โต๊ะหนึ่งเห็นรายการอาหาร
+   * ของอีกโต๊ะ และเห็นหมายเหตุ/เหตุผลยกเลิกบิลที่พนักงานพิมพ์ไว้
+   */
+  private toCustomerPaymentEvent(
+    paymentId: string,
+    sessionId: string,
+    closedSessionIds: string[],
+  ) {
+    return {
+      id: paymentId,
+      tableSessionId: sessionId,
+      sessionClosed: closedSessionIds.includes(sessionId),
+    };
   }
 
   findAll() {
@@ -275,30 +319,30 @@ export class PaymentsService {
     return orders;
   }
 
-  /** ปิด session + คืนโต๊ะให้ว่าง ถ้าไม่เหลือออเดอร์ค้างจ่ายแล้ว */
-  private async closeSessionIfFullyPaid(
+  /** โต๊ะของ session ที่จะเปิดกลับ ต้องไม่มี session อื่นเปิดอยู่ */
+  private async assertSessionsCanReopen(
     tx: Prisma.TransactionClient,
-    tableSessionId: string,
+    sessionIds: string[],
   ) {
-    const unpaidCount = await tx.order.count({
-      where: {
-        tableSessionId,
-        status: { not: OrderStatus.CANCELLED },
-        paymentId: null,
-      },
+    const sessions = await tx.tableSession.findMany({
+      where: { id: { in: sessionIds } },
+      select: { id: true, tableId: true, table: { select: { number: true } } },
     });
-    if (unpaidCount > 0) return false;
-
-    const session = await tx.tableSession.update({
-      where: { id: tableSessionId },
-      data: { status: TableSessionStatus.CLOSED, closedAt: new Date() },
-      select: { tableId: true },
-    });
-    await tx.restaurantTable.update({
-      where: { id: session.tableId },
-      data: { status: TableStatus.AVAILABLE },
-    });
-    return true;
+    for (const session of sessions) {
+      const other = await tx.tableSession.findFirst({
+        where: {
+          tableId: session.tableId,
+          status: TableSessionStatus.OPEN,
+          id: { not: session.id },
+        },
+        select: { id: true },
+      });
+      if (other) {
+        throw new ConflictException(
+          `ยกเลิกบิลไม่ได้: โต๊ะ ${session.table.number} เปิดรับลูกค้ารอบใหม่แล้ว ต้องปิดโต๊ะรอบปัจจุบันก่อน`,
+        );
+      }
+    }
   }
 
   /** เปิด session กลับหลังยกเลิกบิล เพื่อให้เก็บเงินใหม่ได้ */
@@ -376,6 +420,10 @@ export class PaymentsService {
   }
 
   private async generateReceiptNumber(tx: Prisma.TransactionClient) {
+    // นับแล้ว +1 จะได้เลขซ้ำถ้าสองบิลออกพร้อมกัน — ล็อกให้ออกเลขทีละใบ
+    // advisory lock ระดับ transaction ปล่อยเองตอน commit/rollback
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RECEIPT_NUMBER_LOCK})`;
+
     const now = new Date();
     const datePrefix = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
 

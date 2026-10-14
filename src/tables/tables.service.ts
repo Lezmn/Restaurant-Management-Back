@@ -70,7 +70,20 @@ export class TablesService {
         `ลบไม่ได้: โต๊ะนี้ยังมีออเดอร์ที่เปิดอยู่ ${table.orders.length} รายการ ต้องปิดออเดอร์ก่อน`,
       );
     }
-    return this.prisma.restaurantTable.delete({ where: { id } });
+    try {
+      return await this.prisma.restaurantTable.delete({ where: { id } });
+    } catch (e) {
+      // โต๊ะที่เคยมีออเดอร์/บิล/QR session อ้างอยู่ ลบไม่ได้ (ต้องเก็บประวัติการขายไว้)
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2003'
+      ) {
+        throw new ConflictException(
+          'ลบไม่ได้: โต๊ะนี้มีประวัติออเดอร์หรือใบเสร็จอยู่ ซึ่งต้องเก็บไว้เป็นหลักฐานการขาย',
+        );
+      }
+      throw e;
+    }
   }
 
   private async assertExists(id: string) {

@@ -51,7 +51,10 @@ export class IngredientsController {
 
   @Delete(':id')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'ลบวัตถุดิบ (ต้องไม่ผูกกับตัวเลือกเมนูแล้ว)' })
+  @ApiOperation({
+    summary:
+      'ลบวัตถุดิบ — ตัวเลือกเมนูที่ผูกอยู่: ยังไม่เคยถูกสั่งจะถูกลบ, เคยถูกสั่งแล้วจะถูกปิดขายและปลดวัตถุดิบออก',
+  })
   remove(@Param('id') id: string) {
     return this.ingredientsService.remove(id);
   }

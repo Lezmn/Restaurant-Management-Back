@@ -72,16 +72,43 @@ export class IngredientsService {
     }
   }
 
+  /**
+   * ลบวัตถุดิบพร้อมเก็บกวาดตัวเลือกเมนูที่ผูกอยู่ในคราวเดียว
+   * - ตัวเลือกที่ยังไม่เคยถูกสั่ง → ลบทิ้ง
+   * - ตัวเลือกที่อยู่ในออเดอร์แล้ว (ลบไม่ได้เพราะ FK) → ปิดขาย + ปลดวัตถุดิบ ประวัติออเดอร์ยังอยู่ครบ
+   */
   async remove(id: string) {
-    const ingredient = await this.findOne(id);
-    if (ingredient._count.menuOptions > 0) {
-      throw new ConflictException(
-        `ลบไม่ได้: วัตถุดิบนี้ยังผูกกับตัวเลือกเมนูอยู่ ${ingredient._count.menuOptions} รายการ ต้องปลดออกจากเมนูก่อน`,
-      );
+    await this.findOne(id);
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const deleted = await tx.menuOption.deleteMany({
+          where: { ingredientId: id, orderItemOptions: { none: {} } },
+        });
+        const disabled = await tx.menuOption.updateMany({
+          where: { ingredientId: id },
+          data: { ingredientId: null, isAvailable: false },
+        });
+        const ingredient = await tx.ingredient.delete({ where: { id } });
+        return {
+          ...ingredient,
+          deletedOptions: deleted.count,
+          disabledOptions: disabled.count,
+        };
+      });
+      this.emitMenuChanged();
+      return result;
+    } catch (e) {
+      // มีคนสั่งตัวเลือกนั้นเข้ามาพอดีระหว่างลบ → FK ชน ให้ลองใหม่
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2003'
+      ) {
+        throw new ConflictException(
+          'ลบไม่สำเร็จ: มีออเดอร์ใช้ตัวเลือกของวัตถุดิบนี้เข้ามาระหว่างลบ กรุณาลองใหม่',
+        );
+      }
+      throw e;
     }
-    const removed = await this.prisma.ingredient.delete({ where: { id } });
-    this.emitMenuChanged();
-    return removed;
   }
 
   /** เมนู/ตัวเลือกเปลี่ยน — ให้ทุกจอ (พนักงาน + ลูกค้าที่เปิดค้างไว้) ดึงเมนูใหม่ */

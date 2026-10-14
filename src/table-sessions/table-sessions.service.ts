@@ -16,6 +16,7 @@ import { randomBytes } from 'node:crypto';
 import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTableSessionDto } from './dto/create-table-session.dto';
+import { countUnpaidOrders } from './session-settlement';
 
 const DEFAULT_SESSION_TTL_MS = 3 * 60 * 60 * 1000;
 
@@ -212,6 +213,18 @@ export class TableSessionsService {
       throw new BadRequestException('QR session นี้ปิดแล้ว');
     }
     if (session.expiresAt && session.expiresAt < new Date()) {
+      // ยังมียอดค้างจ่าย = ลูกค้ายังนั่งอยู่ ห้ามหมดอายุ ไม่งั้นบิลหายจากหน้าเก็บเงิน
+      // (หน้า Check โชว์เฉพาะ session ที่เปิดอยู่) และโต๊ะถูกปล่อยว่างทั้งที่ยังไม่จ่าย
+      // ต่ออายุให้อีกรอบแทน — session จะปิดเองตอนเก็บเงินครบ
+      const unpaidCount = await countUnpaidOrders(this.prisma, session.id);
+      if (unpaidCount > 0) {
+        return this.prisma.tableSession.update({
+          where: { id: session.id },
+          data: { expiresAt: new Date(Date.now() + DEFAULT_SESSION_TTL_MS) },
+          include: { table: true },
+        });
+      }
+
       // คืนโต๊ะให้ว่างด้วย ไม่งั้นโต๊ะจะค้างเป็น OCCUPIED ตลอดไป เปิด QR ใหม่ไม่ได้
       await this.prisma.$transaction([
         this.prisma.tableSession.update({

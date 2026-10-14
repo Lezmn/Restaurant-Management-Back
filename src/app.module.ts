@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { createIdentityTracker, ipTracker } from './common/throttle-trackers';
 import { PrismaModule } from './prisma/prisma.module';
 import { MenuModule } from './menu/menu.module';
 import { OrdersModule } from './orders/orders.module';
@@ -21,16 +23,28 @@ import { EventsModule } from './events/events.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    // Rate limit ทั้งแอปต่อ IP กัน bot ยิงถล่ม — /auth/login เข้มกว่านี้อีก (ดู auth.controller)
-    // ปรับได้ผ่าน THROTTLE_LIMIT (ครั้ง/นาที) เช่นตอนรัน load test
+    // Rate limit 2 ชั้น (ดูเหตุผลใน common/throttle-trackers.ts)
+    //   default = ต่อคน (พนักงาน/QR โต๊ะ) THROTTLE_LIMIT ครั้ง/นาที — /auth/login เข้มกว่านี้ (ดู auth.controller)
+    //   ip      = เพดานรวมต่อ IP THROTTLE_IP_LIMIT ครั้ง/นาที — ทั้งร้านใช้ IP เดียวกันได้ แต่ bot ยิงถล่มไม่ได้
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => [
-        {
-          ttl: 60_000,
-          limit: Number(config.get('THROTTLE_LIMIT') ?? 100),
-        },
-      ],
+      useFactory: (config: ConfigService) => {
+        const jwt = new JwtService({ secret: config.getOrThrow<string>('JWT_SECRET') });
+        return [
+          {
+            name: 'default',
+            ttl: 60_000,
+            limit: Number(config.get('THROTTLE_LIMIT') ?? 300),
+            getTracker: createIdentityTracker(jwt),
+          },
+          {
+            name: 'ip',
+            ttl: 60_000,
+            limit: Number(config.get('THROTTLE_IP_LIMIT') ?? 1000),
+            getTracker: ipTracker,
+          },
+        ];
+      },
     }),
     PrismaModule,
     EventsModule,
