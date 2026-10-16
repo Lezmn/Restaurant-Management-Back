@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ExpenseCategory } from '@prisma/client';
+import { AuthenticatedUser } from '../auth/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveDateRange } from '../common/date-range.util';
+import { CreateDrawerExpenseDto } from './dto/create-drawer-expense.dto';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { FindExpensesQueryDto } from './dto/find-expenses-query.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
@@ -9,14 +12,30 @@ import { UpdateExpenseDto } from './dto/update-expense.dto';
 export class ExpensesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(dto: CreateExpenseDto) {
+  create(dto: CreateExpenseDto, user: AuthenticatedUser) {
     return this.prisma.expense.create({
       data: {
         title: dto.title,
         amount: dto.amount,
         category: dto.category,
         note: dto.note,
+        paidFromDrawer: dto.paidFromDrawer,
         spentAt: dto.spentAt ? new Date(dto.spentAt) : undefined,
+        createdById: user.id,
+        createdByName: user.name,
+      },
+    });
+  }
+
+  createFromDrawer(dto: CreateDrawerExpenseDto, user: AuthenticatedUser) {
+    return this.prisma.expense.create({
+      data: {
+        title: dto.title,
+        amount: dto.amount,
+        category: dto.category ?? ExpenseCategory.INGREDIENTS,
+        paidFromDrawer: true,
+        createdById: user.id,
+        createdByName: user.name,
       },
     });
   }
@@ -48,6 +67,7 @@ export class ExpensesService {
         amount: dto.amount,
         category: dto.category,
         note: dto.note,
+        paidFromDrawer: dto.paidFromDrawer,
         spentAt: dto.spentAt ? new Date(dto.spentAt) : undefined,
       },
     });

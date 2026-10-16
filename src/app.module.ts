@@ -17,6 +17,7 @@ import { ServiceRequestsModule } from './service-requests/service-requests.modul
 import { UsersModule } from './users/users.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { ReportsModule } from './reports/reports.module';
+import { CashClosesModule } from './cash-closes/cash-closes.module';
 import { IngredientsModule } from './ingredients/ingredients.module';
 import { EventsModule } from './events/events.module';
 
@@ -60,6 +61,7 @@ import { EventsModule } from './events/events.module';
     UsersModule,
     ExpensesModule,
     ReportsModule,
+    CashClosesModule,
     AuthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

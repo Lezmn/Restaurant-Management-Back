@@ -79,6 +79,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  cashCloses DailyCashClose[]
+  expenses   Expense[]
+
   @@map("users")
 }
 
@@ -322,6 +325,15 @@ model Expense {
   note     String?
   spentAt  DateTime        @default(now())
 
+  // หยิบเงินสดจากลิ้นชักไปจ่าย (ซื้อน้ำแข็ง ผักขาด ฯลฯ) — นับเป็นเงินออกตอนปิดยอดวัน
+  paidFromDrawer Boolean @default(false)
+
+  // ใครบันทึก — พนักงานบันทึกเงินที่หยิบจากลิ้นชักเองได้ เจ้าของต้องเห็นว่าใครหยิบ
+  // ลบ user ได้โดยประวัติไม่หาย (ชื่อเก็บสำเนาไว้) — รายการเก่าก่อนมีคอลัมน์นี้เป็น null
+  createdBy     User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdById   String?
+  createdByName String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -345,4 +357,31 @@ model ReceiptItem {
 
   @@index([receiptId])
   @@map("receipt_items")
+}
+
+/// ปิดยอดเงินสดประจำวัน — นับเงินในลิ้นชักเทียบกับยอดที่ระบบคาดไว้ วันละ 1 ครั้ง
+/// ตัวเลขยอดขาย/รายจ่ายเป็น snapshot ตอนปิด ถ้ามีการยกเลิกบิล/แก้รายจ่ายทีหลัง ดูความต่างได้จาก GET /cash-closes/:id
+model DailyCashClose {
+  id String @id @default(uuid())
+
+  // วันทำการรูปแบบ 'YYYY-MM-DD' (เวลาเครื่อง server) — เก็บเป็น string เลี่ยงปัญหา @db.Date แปลงเป็น UTC แล้ววันเลื่อน
+  date String @unique
+
+  openingFloat   Decimal @db.Decimal(10, 2) // เงินทอนที่ใส่ลิ้นชักไว้ตอนเปิดร้าน
+  cashSales      Decimal @db.Decimal(10, 2)
+  drawerExpenses Decimal @db.Decimal(10, 2)
+  expectedCash   Decimal @db.Decimal(10, 2) // openingFloat + cashSales - drawerExpenses
+  countedCash    Decimal @db.Decimal(10, 2)
+  difference     Decimal @db.Decimal(10, 2) // countedCash - expectedCash (บวก = เกิน, ลบ = ขาด)
+  promptpaySales Decimal @db.Decimal(10, 2) // ไว้เทียบกับแอปธนาคาร ไม่ได้นับในลิ้นชัก
+
+  note     String?
+  closedAt DateTime @default(now())
+
+  // ลบ user ได้โดยประวัติไม่หาย — ชื่อเก็บสำเนาไว้ใน closedByName
+  closedBy     User?   @relation(fields: [closedById], references: [id], onDelete: SetNull)
+  closedById   String?
+  closedByName String
+
+  @@map("daily_cash_closes")
 }

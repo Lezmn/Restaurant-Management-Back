@@ -7,10 +7,13 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
+import { AuthenticatedUser } from '../auth/jwt.strategy';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CreateDrawerExpenseDto } from './dto/create-drawer-expense.dto';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { FindExpensesQueryDto } from './dto/find-expenses-query.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
@@ -25,8 +28,21 @@ export class ExpensesController {
 
   @Post()
   @ApiOperation({ summary: 'บันทึกรายจ่ายของร้าน' })
-  create(@Body() dto: CreateExpenseDto) {
-    return this.expensesService.create(dto);
+  create(
+    @Body() dto: CreateExpenseDto,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    return this.expensesService.create(dto, request.user);
+  }
+
+  @Post('drawer')
+  @Roles(Role.ADMIN, Role.STAFF)
+  @ApiOperation({ summary: 'พนักงานบันทึกเงินสดที่หยิบจากลิ้นชักไปจ่าย (แก้/ลบได้เฉพาะผู้ดูแล)' })
+  createFromDrawer(
+    @Body() dto: CreateDrawerExpenseDto,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    return this.expensesService.createFromDrawer(dto, request.user);
   }
 
   @Get()

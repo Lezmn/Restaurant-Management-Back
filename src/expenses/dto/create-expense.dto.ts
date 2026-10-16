@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ExpenseCategory } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsISO8601,
   IsNotEmpty,
@@ -39,4 +40,12 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsISO8601()
   spentAt?: string;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'หยิบเงินสดจากลิ้นชักไปจ่าย — นับเป็นเงินออกตอนปิดยอดวัน',
+  })
+  @IsOptional()
+  @IsBoolean()
+  paidFromDrawer?: boolean;
 }

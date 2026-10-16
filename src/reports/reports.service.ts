@@ -108,6 +108,8 @@ export class ReportsService {
           : 'รับชำระเงิน',
         category: payment.method as PaymentMethod,
         amount: payment.amount,
+        paidFromDrawer: false,
+        createdByName: null,
       })),
       ...expenses.map((expense) => ({
         type: 'EXPENSE' as const,
@@ -116,6 +118,9 @@ export class ReportsService {
         title: expense.title,
         category: expense.category,
         amount: expense.amount,
+        // ให้หน้ารายรับ-รายจ่ายติดป้าย "จากลิ้นชัก · โดย ..." ได้
+        paidFromDrawer: expense.paidFromDrawer,
+        createdByName: expense.createdByName,
       })),
     ].sort((a, b) => b.date.getTime() - a.date.getTime());
 
