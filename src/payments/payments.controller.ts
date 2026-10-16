@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { FindPaymentsQueryDto } from './dto/find-payments-query.dto';
 import { VoidPaymentDto } from './dto/void-payment.dto';
 import { PaymentsService } from './payments.service';
 
@@ -34,9 +35,11 @@ export class PaymentsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.STAFF)
-  @ApiOperation({ summary: 'ดึงรายการชำระเงินทั้งหมด พร้อม receipt' })
-  findAll() {
-    return this.paymentsService.findAll();
+  @ApiOperation({
+    summary: 'ดึงรายการชำระเงิน พร้อม receipt — ส่ง from/to เพื่อกรองตามเวลาจ่าย (ไม่ส่ง = ทั้งหมด)',
+  })
+  findAll(@Query() query: FindPaymentsQueryDto) {
+    return this.paymentsService.findAll(query);
   }
 
   @Get(':id')

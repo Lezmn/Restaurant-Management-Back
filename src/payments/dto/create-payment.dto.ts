@@ -4,7 +4,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
   IsArray,
-  IsEnum,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -13,6 +13,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { ACCEPTED_PAYMENT_METHODS } from '../accepted-payment-methods';
 
 export class CreatePaymentDto {
   @ApiPropertyOptional({
@@ -38,8 +39,8 @@ export class CreatePaymentDto {
   @IsUUID('4', { each: true })
   orderIds?: string[];
 
-  @ApiProperty({ enum: PaymentMethod, example: PaymentMethod.CASH })
-  @IsEnum(PaymentMethod)
+  @ApiProperty({ enum: ACCEPTED_PAYMENT_METHODS, example: PaymentMethod.CASH })
+  @IsIn(ACCEPTED_PAYMENT_METHODS)
   method: PaymentMethod;
 
   @ApiPropertyOptional({
@@ -52,6 +53,17 @@ export class CreatePaymentDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   amount?: number;
+
+  @ApiPropertyOptional({
+    example: 300,
+    description:
+      'ยอดบิลที่หน้าจอแคชเชียร์แสดงอยู่ (ก่อนส่วนลด) — ถ้ายอดจริงตอนบันทึกไม่ตรง (มีออเดอร์ถูกยกเลิก/เสิร์ฟเพิ่มระหว่างเปิดหน้ารับเงิน) จะตอบ 409',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  expectedTotal?: number;
 
   @ApiPropertyOptional({
     example: 'ลูกค้าขอใบกำกับภาษี',

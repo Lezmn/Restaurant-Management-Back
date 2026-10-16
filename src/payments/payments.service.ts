@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   OrderStatus,
@@ -15,6 +16,7 @@ import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { closeSessionIfSettled } from '../table-sessions/session-settlement';
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { FindPaymentsQueryDto } from './dto/find-payments-query.dto';
 import { VoidPaymentDto } from './dto/void-payment.dto';
 
 const TABLE_SESSION_SELECT = {
@@ -34,6 +36,12 @@ const PAYABLE_ORDER_INCLUDE = {
 /** key ของ pg_advisory_xact_lock สำหรับออกเลขใบเสร็จ (เลขอะไรก็ได้ที่ไม่ชนกับ lock อื่นในระบบ) */
 const RECEIPT_NUMBER_LOCK = 7_420_001;
 
+/**
+ * เวลารอของ transaction รับเงิน/ยกเลิกบิล — ค่า default ของ Prisma (รอ 2 วิ, รัน 5 วิ) สั้นไป
+ * ตอนบิลเข้าพร้อมกันหลายโต๊ะ (ออกเลขใบเสร็จทีละใบ) หรือ DB ช้าชั่วคราว แล้วแคชเชียร์ได้ 500 เปล่า ๆ
+ */
+const BILLING_TX_OPTIONS = { maxWait: 10_000, timeout: 15_000 } as const;
+
 type PayableOrder = Prisma.OrderGetPayload<{
   include: typeof PAYABLE_ORDER_INCLUDE;
 }>;
@@ -50,12 +58,14 @@ export class PaymentsService {
       throw new BadRequestException('ต้องส่ง tableSessionId หรือ orderIds อย่างน้อยหนึ่งอย่าง');
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.runBillingTransaction(async (tx) => {
       const orders = dto.orderIds?.length
         ? await this.resolveOrdersByIds(tx, dto.orderIds)
         : await this.resolveUnpaidSessionOrders(tx, dto.tableSessionId!);
 
       const subtotal = this.calculateOrdersTotal(orders);
+      // ยอดบนจอ/QR ที่ลูกค้าจ่ายไปแล้ว ต้องตรงกับยอดที่จะบันทึก ไม่งั้นบันทึกเงินผิดเงียบ ๆ
+      this.assertTotalUnchanged(subtotal, dto.expectedTotal);
       // แคชเชียร์ลดราคาได้ (ลูกค้าต่อรอง/ของมีตำหนิ) ส่วนต่างเก็บเป็นส่วนลดในใบเสร็จ
       const amount = this.resolveChargedAmount(subtotal, dto.amount);
       // บิลนี้ผูกกับ session ของออเดอร์ใบแรก (กรณีรวมบิลข้ามโต๊ะจะมีหลาย session)
@@ -139,7 +149,7 @@ export class PaymentsService {
   }
 
   async voidPayment(id: string, dto: VoidPaymentDto) {
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.runBillingTransaction(async (tx) => {
       const payment = await tx.payment.findUnique({
         where: { id },
         include: { orders: { select: { id: true, tableSessionId: true } } },
@@ -219,8 +229,36 @@ export class PaymentsService {
     };
   }
 
-  findAll() {
+  /**
+   * transaction ของงานเงิน — ถ้าเริ่ม/รันไม่ทันเวลา (P2028) ทุกอย่าง rollback แล้ว ไม่มีบิลค้างครึ่ง ๆ
+   * จึงบอกแคชเชียร์ให้กดใหม่ได้เลย แทนที่จะปล่อยเป็น 500 ที่ไม่รู้ว่าเงินเข้าหรือยัง
+   */
+  private async runBillingTransaction<T>(
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await this.prisma.$transaction(fn, BILLING_TX_OPTIONS);
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2028'
+      ) {
+        throw new ServiceUnavailableException(
+          'ระบบตอบช้าชั่วคราว ยังไม่ได้บันทึกบิลนี้ กรุณากดบันทึกใหม่อีกครั้ง',
+        );
+      }
+      throw e;
+    }
+  }
+
+  findAll(query: FindPaymentsQueryDto = {}) {
     return this.prisma.payment.findMany({
+      where: {
+        paidAt: {
+          ...(query.from ? { gte: new Date(query.from) } : {}),
+          ...(query.to ? { lt: new Date(query.to) } : {}),
+        },
+      },
       include: {
         receipt: true,
         tableSession: { select: TABLE_SESSION_SELECT },
@@ -364,6 +402,15 @@ export class PaymentsService {
       where: { id: session.tableId },
       data: { status: TableStatus.OCCUPIED },
     });
+  }
+
+  private assertTotalUnchanged(subtotal: Prisma.Decimal, expected?: number) {
+    if (expected === undefined) return;
+    if (!subtotal.equals(new Prisma.Decimal(expected))) {
+      throw new ConflictException(
+        `ยอดบิลเปลี่ยนจาก ${new Prisma.Decimal(expected).toFixed(2)} เป็น ${subtotal.toFixed(2)} (มีออเดอร์ถูกยกเลิกหรือเสิร์ฟเพิ่ม) กรุณาปิดแล้วเปิดหน้ารับเงินใหม่`,
+      );
+    }
   }
 
   /** ยอดที่เก็บจริง — ไม่ส่งมา = เต็มบิล; เก็บเกินยอดบิลไม่ได้ (เงินที่เกินคือเงินทอน ไม่ใช่รายได้) */

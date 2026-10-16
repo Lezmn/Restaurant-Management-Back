@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentMethod, ServiceRequestType } from '@prisma/client';
-import { IsEnum, IsOptional, IsUUID } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsUUID } from 'class-validator';
+import { ACCEPTED_PAYMENT_METHODS } from '../../payments/accepted-payment-methods';
 
 export class CreateServiceRequestDto {
   @ApiProperty({ example: 'table-uuid' })
@@ -20,11 +21,11 @@ export class CreateServiceRequestDto {
   type: ServiceRequestType;
 
   @ApiPropertyOptional({
-    enum: PaymentMethod,
+    enum: ACCEPTED_PAYMENT_METHODS,
     example: PaymentMethod.CASH,
     description: 'เฉพาะ type=CHECKOUT: วิธีจ่ายเงินที่ลูกค้าเลือกไว้',
   })
   @IsOptional()
-  @IsEnum(PaymentMethod)
+  @IsIn(ACCEPTED_PAYMENT_METHODS)
   paymentMethod?: PaymentMethod;
 }
