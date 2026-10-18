@@ -7,17 +7,21 @@ import {
 } from '@nestjs/common';
 import {
   OrderStatus,
+  PaymentMethod,
   PaymentStatus,
   Prisma,
+  SlipStatus,
   TableSessionStatus,
   TableStatus,
 } from '@prisma/client';
+import { AuthenticatedUser } from '../auth/jwt.strategy';
 import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { closeSessionIfSettled } from '../table-sessions/session-settlement';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { FindPaymentsQueryDto } from './dto/find-payments-query.dto';
 import { VoidPaymentDto } from './dto/void-payment.dto';
+import { PaymentSlipService, SlipFields } from './payment-slip.service';
 
 const TABLE_SESSION_SELECT = {
   id: true,
@@ -51,12 +55,17 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventsGateway,
+    private readonly paymentSlip: PaymentSlipService,
   ) {}
 
-  async create(dto: CreatePaymentDto) {
+  async create(dto: CreatePaymentDto, user: AuthenticatedUser) {
     if (!dto.tableSessionId && !dto.orderIds?.length) {
       throw new BadRequestException('ต้องส่ง tableSessionId หรือ orderIds อย่างน้อยหนึ่งอย่าง');
     }
+
+    // PromptPay: ตรวจสลิปกับ SlipOK ก่อนเข้า transaction (เรียก API ภายนอกในทรานแซกชัน = ล็อก DB ค้างระหว่างรอ)
+    const slip =
+      dto.method === PaymentMethod.PROMPTPAY ? await this.checkSlip(dto, user) : null;
 
     const result = await this.runBillingTransaction(async (tx) => {
       const orders = dto.orderIds?.length
@@ -68,6 +77,10 @@ export class PaymentsService {
       this.assertTotalUnchanged(subtotal, dto.expectedTotal);
       // แคชเชียร์ลดราคาได้ (ลูกค้าต่อรอง/ของมีตำหนิ) ส่วนต่างเก็บเป็นส่วนลดในใบเสร็จ
       const amount = this.resolveChargedAmount(subtotal, dto.amount);
+      // ยอดเปลี่ยนระหว่างตรวจสลิปกับตอนบันทึก (มีออเดอร์ถูกแก้พอดี) — สลิปถูกตรวจกับยอดเก่า ห้ามบันทึก
+      if (slip && !slip.charged.equals(amount)) {
+        throw new ConflictException('ยอดบิลเปลี่ยนระหว่างตรวจสลิป กรุณาเปิดหน้ารับเงินใหม่');
+      }
       // บิลนี้ผูกกับ session ของออเดอร์ใบแรก (กรณีรวมบิลข้ามโต๊ะจะมีหลาย session)
       const primarySessionId = orders[0].tableSessionId!;
       const primaryTableId = orders[0].tableId;
@@ -81,6 +94,7 @@ export class PaymentsService {
           amount,
           method: dto.method,
           note,
+          ...slip?.fields,
         },
       });
 
@@ -148,6 +162,36 @@ export class PaymentsService {
     return payload;
   }
 
+  /**
+   * ตรวจสลิปของบิล PromptPay — คิดยอดจากออเดอร์จริงก่อน (นอก transaction)
+   * แล้วค่อยให้ transaction ตรวจซ้ำว่ายอดไม่เปลี่ยน
+   */
+  private async checkSlip(
+    dto: CreatePaymentDto,
+    user: AuthenticatedUser,
+  ): Promise<{ charged: Prisma.Decimal; fields: SlipFields }> {
+    const orders = dto.orderIds?.length
+      ? await this.resolveOrdersByIds(this.prisma, dto.orderIds)
+      : await this.resolveUnpaidSessionOrders(this.prisma, dto.tableSessionId!);
+    const subtotal = this.calculateOrdersTotal(orders);
+    this.assertTotalUnchanged(subtotal, dto.expectedTotal);
+    const charged = this.resolveChargedAmount(subtotal, dto.amount);
+
+    const session = await this.prisma.tableSession.findUniqueOrThrow({
+      where: { id: orders[0].tableSessionId! },
+      select: { openedAt: true },
+    });
+
+    const fields = await this.paymentSlip.checkForNewPayment({
+      slipPayload: dto.slipPayload,
+      overrideReason: dto.slipOverrideReason,
+      charged,
+      sessionOpenedAt: session.openedAt,
+      user,
+    });
+    return { charged, fields };
+  }
+
   async voidPayment(id: string, dto: VoidPaymentDto) {
     const result = await this.runBillingTransaction(async (tx) => {
       const payment = await tx.payment.findUnique({
@@ -178,6 +222,8 @@ export class PaymentsService {
           status: PaymentStatus.VOIDED,
           voidedAt: new Date(),
           voidReason: dto.reason,
+          // ปล่อยรหัสสลิปคืน ให้บันทึกบิลใหม่ด้วยสลิปเดิมได้ (เช่น กดผิดโต๊ะ)
+          ...this.paymentSlip.releaseOnVoid(payment.slipTransRef),
         },
       });
 
@@ -239,6 +285,14 @@ export class PaymentsService {
     try {
       return await this.prisma.$transaction(fn, BILLING_TX_OPTIONS);
     } catch (e) {
+      // สลิปใบเดียวกันถูกบันทึกกับอีกบิลพร้อมกันพอดี (unique slipTransRef)
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002' &&
+        String(e.meta?.target ?? '').includes('slipTransRef')
+      ) {
+        throw new ConflictException('สลิปนี้ถูกใช้กับบิลอื่นแล้ว');
+      }
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
         e.code === 'P2028'
@@ -258,6 +312,12 @@ export class PaymentsService {
           ...(query.from ? { gte: new Date(query.from) } : {}),
           ...(query.to ? { lt: new Date(query.to) } : {}),
         },
+        ...(query.slipIssues
+          ? {
+              status: PaymentStatus.COMPLETED,
+              slipStatus: { in: [SlipStatus.PENDING, SlipStatus.FAILED] },
+            }
+          : {}),
       },
       include: {
         receipt: true,

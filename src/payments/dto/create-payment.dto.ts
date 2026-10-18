@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentMethod } from '@prisma/client';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
   IsArray,
@@ -64,6 +64,30 @@ export class CreatePaymentDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   expectedTotal?: number;
+
+  @ApiPropertyOptional({
+    example: '0041000600000101030060217...',
+    description:
+      'PromptPay: ข้อความใน QR มุมขวาล่างของสลิป (จากเครื่องสแกน/อ่านจากรูป) — backend ส่งไปตรวจกับ SlipOK ก่อนบันทึก',
+  })
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  slipPayload?: string;
+
+  @ApiPropertyOptional({
+    example: 'ลูกค้าโอนผ่านแอปที่ไม่มี QR บนสลิป ตรวจยอดเข้าในแอปธนาคารแล้ว',
+    description:
+      'PromptPay ไม่มีสลิปให้ตรวจ — เฉพาะ ADMIN ยืนยันเองได้ ต้องใส่เหตุผล (เก็บไว้ตรวจย้อนหลัง)',
+  })
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  slipOverrideReason?: string;
 
   @ApiPropertyOptional({
     example: 'ลูกค้าขอใบกำกับภาษี',

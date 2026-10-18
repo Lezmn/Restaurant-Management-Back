@@ -4,6 +4,7 @@ import {
   PaymentMethod,
   PaymentStatus,
   Prisma,
+  SlipStatus,
   TableStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -27,8 +28,14 @@ export class ReportsService {
     const tomorrowStart = addDays(todayStart, 1);
     const trendStart = addDays(todayStart, -(TREND_DAYS - 1));
 
-    const [todayPayments, todayOrderCount, todayExpenses, tableGroups, trendPayments] =
-      await Promise.all([
+    const [
+      todayPayments,
+      todayOrderCount,
+      todayExpenses,
+      tableGroups,
+      trendPayments,
+      slipGroups,
+    ] = await Promise.all([
         // นับเฉพาะบิลที่ยังไม่ถูกยกเลิก ไม่งั้นยอดขายจะเกินจริง
         this.prisma.payment.findMany({
           where: {
@@ -55,6 +62,14 @@ export class ReportsService {
           },
           select: { amount: true, paidAt: true },
         }),
+        this.prisma.payment.groupBy({
+          by: ['slipStatus'],
+          where: {
+            status: PaymentStatus.COMPLETED,
+            slipStatus: { in: [SlipStatus.PENDING, SlipStatus.FAILED] },
+          },
+          _count: { _all: true },
+        }),
       ]);
 
     const revenue = this.sum(todayPayments.map((payment) => payment.amount));
@@ -70,6 +85,11 @@ export class ReportsService {
       revenueByMethod: this.sumByMethod(todayPayments),
       tables: this.countTablesByStatus(tableGroups),
       revenueTrend: this.buildTrend(trendPayments, trendStart),
+      // บิล PromptPay ที่ยังยืนยันไม่ได้ว่าเงินเข้าจริง — ไม่จำกัดวัน ค้างอยู่จนกว่าจะจัดการ
+      slipIssues: {
+        pending: slipGroups.find((g) => g.slipStatus === SlipStatus.PENDING)?._count._all ?? 0,
+        failed: slipGroups.find((g) => g.slipStatus === SlipStatus.FAILED)?._count._all ?? 0,
+      },
     };
   }
 

@@ -45,6 +45,11 @@ services:
       THROTTLE_IP_LIMIT: ${THROTTLE_IP_LIMIT:-1000}
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
       TRUST_PROXY: ${TRUST_PROXY:-false}
+      SLIPOK_API_KEY: ${SLIPOK_API_KEY:-}
+      SLIPOK_BRANCH_ID: ${SLIPOK_BRANCH_ID:-}
+      SLIPOK_MOCK: ${SLIPOK_MOCK:-false}
+      SLIP_RECHECK_INTERVAL_MS: ${SLIP_RECHECK_INTERVAL_MS:-120000}
+      SLIP_RECHECK_MAX_ATTEMPTS: ${SLIP_RECHECK_MAX_ATTEMPTS:-15}
     depends_on:
       postgres:
         condition: service_healthy

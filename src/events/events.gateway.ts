@@ -30,7 +30,9 @@ export type ServerEvent =
   | 'table-session.created'
   | 'table-session.closed'
   /** เมนู/วัตถุดิบเปลี่ยน — ทุกจอต้องดึงเมนูใหม่ (เช่น ปิดวัตถุดิบเพราะของหมด) */
-  | 'menu.updated';
+  | 'menu.updated'
+  /** ผลตรวจสลิป PromptPay เปลี่ยน (ตรวจซ้ำผ่าน/ไม่ผ่าน, ADMIN ยืนยันเอง) */
+  | 'payment.slip-updated';
 
 type StaffPayload = { sub: string };
 

@@ -38,6 +38,14 @@ enum PaymentStatus {
   VOIDED
 }
 
+/// ผลตรวจสลิป PromptPay ผ่าน SlipOK (เงินสด = null)
+enum SlipStatus {
+  VERIFIED // SlipOK ยืนยันว่ามีรายการโอนจริง ยอด/ผู้รับตรง
+  PENDING // ตรวจไม่ได้ตอนรับเงิน (ธนาคารขัดข้อง/ให้รอ) — ระบบตรวจซ้ำเอง
+  FAILED // ตรวจซ้ำแล้วไม่ผ่าน หรือหมดเวลาตรวจ — เจ้าของต้องตามเงิน/ยกเลิกบิล
+  MANUAL // ADMIN ยืนยันเองโดยไม่ผ่าน SlipOK (มีเหตุผลกำกับ)
+}
+
 enum TableSessionStatus {
   OPEN
   CLOSED
@@ -151,14 +159,14 @@ model MenuOption {
 }
 
 model RestaurantTable {
-  id     String      @id @default(uuid())
-  number Int         @unique
-  seats  Int         @default(4)
-  status TableStatus @default(AVAILABLE)
-  orders Order[]
-  sessions TableSession[]
+  id              String           @id @default(uuid())
+  number          Int              @unique
+  seats           Int              @default(4)
+  status          TableStatus      @default(AVAILABLE)
+  orders          Order[]
+  sessions        TableSession[]
   serviceRequests ServiceRequest[]
-  receipts Receipt[]
+  receipts        Receipt[]
 
   @@map("restaurant_tables")
 }
@@ -174,10 +182,10 @@ model TableSession {
   table   RestaurantTable @relation(fields: [tableId], references: [id])
   tableId String
 
-  orders Order[]
+  orders          Order[]
   serviceRequests ServiceRequest[]
-  payments Payment[]
-  receipts Receipt[]
+  payments        Payment[]
+  receipts        Receipt[]
 
   @@index([tableId, status])
   @@map("table_sessions")
@@ -203,7 +211,7 @@ model Order {
   payment   Payment? @relation(fields: [paymentId], references: [id])
   paymentId String?
 
-  items   OrderItem[]
+  items OrderItem[]
 
   @@index([tableId, status])
   @@index([tableSessionId])
@@ -258,6 +266,21 @@ model Payment {
   // หมายเหตุที่พนักงานพิมพ์ตอนรับเงิน (สำเนาอยู่ที่ Receipt.note ด้วย)
   note String?
 
+  // ---- ตรวจสลิป PromptPay (SlipOK) ----
+  slipStatus         SlipStatus?
+  slipPayload        String? // ข้อความใน QR ของสลิป — เก็บไว้ตรวจซ้ำ ไม่เก็บรูปสลิป (มีข้อมูลส่วนตัวลูกค้า)
+  // รหัสรายการโอนจากธนาคาร — unique กันสลิปใบเดียวใช้กับหลายบิล (SlipOK แนะนำให้กันฝั่งเราเองด้วย)
+  slipTransRef       String?     @unique
+  slipAmount         Decimal?    @db.Decimal(10, 2) // ยอดจริงจากธนาคาร
+  slipTransAt        DateTime? // เวลาโอนจริงจากธนาคาร
+  slipSendingBank    String?
+  slipMessage        String? // ผล/เหตุผลล่าสุด เช่น "ธนาคารขัดข้องชั่วคราว"
+  slipAttempts       Int         @default(0)
+  slipCheckedAt      DateTime?
+  // ADMIN ยืนยันเองโดยไม่ตรวจสลิป — ต้องมีเหตุผล และเก็บชื่อคนยืนยันไว้
+  slipOverrideReason String?
+  slipOverrideByName String?
+
   tableSession   TableSession @relation(fields: [tableSessionId], references: [id])
   tableSessionId String
 
@@ -266,14 +289,15 @@ model Payment {
   receipt Receipt?
 
   @@index([tableSessionId, status])
+  @@index([slipStatus])
   @@map("payments")
 }
 
 model ServiceRequest {
-  id        String               @id @default(uuid())
-  type      ServiceRequestType
-  status    ServiceRequestStatus @default(PENDING)
-  createdAt DateTime             @default(now())
+  id         String               @id @default(uuid())
+  type       ServiceRequestType
+  status     ServiceRequestStatus @default(PENDING)
+  createdAt  DateTime             @default(now())
   resolvedAt DateTime?
 
   // เฉพาะ type=CHECKOUT: วิธีจ่ายเงินที่ลูกค้าเลือกไว้ตอนขอเช็คบิล (แคชเชียร์แก้ไขได้ก่อนชำระจริง)
@@ -291,14 +315,14 @@ model ServiceRequest {
 }
 
 model Receipt {
-  id        String   @id @default(uuid())
-  number    String   @unique
-  subtotal  Decimal  @db.Decimal(10, 2)
-  discount  Decimal  @default(0) @db.Decimal(10, 2)
-  total     Decimal  @db.Decimal(10, 2)
-  issuedAt  DateTime @default(now())
+  id       String   @id @default(uuid())
+  number   String   @unique
+  subtotal Decimal  @db.Decimal(10, 2)
+  discount Decimal  @default(0) @db.Decimal(10, 2)
+  total    Decimal  @db.Decimal(10, 2)
+  issuedAt DateTime @default(now())
   // หมายเหตุพิมพ์ท้ายใบเสร็จ — คัดลอกจาก Payment.note ตอนออกใบเสร็จ
-  note      String?
+  note     String?
 
   payment   Payment @relation(fields: [paymentId], references: [id])
   paymentId String  @unique
