@@ -15,7 +15,11 @@ export class AuthController {
   @Public()
   @Post('login')
   // เดารหัสได้แค่ 5 ครั้ง/นาที/IP — เข้มกว่า limit ทั้งแอปเพราะเป็นจุดที่ bot ชอบยิง
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  // ปรับได้ด้วย LOGIN_THROTTLE_LIMIT (ค่าเริ่มต้น 5) — ไว้เปิดกว้างตอนรันเทสต์ E2E ที่ login ทุกเคส
+  // อ่านตอน request (ไม่ใช่ตอนโหลดไฟล์) เพราะ decorator รันก่อน .env ถูกโหลด
+  @Throttle({
+    default: { limit: () => Number(process.env.LOGIN_THROTTLE_LIMIT ?? 5), ttl: 60_000 },
+  })
   @ApiOperation({ summary: 'เข้าสู่ระบบและรับ JWT access token' })
   login(@Body() dto: LoginDto) { return this.authService.login(dto); }
 
